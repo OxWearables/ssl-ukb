@@ -1,0 +1,21 @@
+gpu: 0
+multi_gpu: false
+gpu_ids: [0, 1, 2]
+pretrained_model_root: /data/UKBB/gert/ssl/logging/cv_output/0
+
+hmm:
+  path: weights/hmm.npz
+  uniform_prior: true
+
+data:
+  name: 'capture24'
+  output_size: 4
+  data_root: /data/UKBB/capture24_30hz_w30_o0
+  X_path: "${.data_root}/X.npy"
+  Y_path: "${.data_root}/Y_Walmsley.npy"
+  PID_path: "${.data_root}/pid.npy"
+  time_path: "${.data_root}/time.npy"
+  sample_rate: 30
+  input_size: 900
+
+
