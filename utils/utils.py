@@ -6,6 +6,8 @@ from tqdm import tqdm
 import sklearn.metrics as metrics
 from scipy.interpolate import interp1d
 from torch.autograd import Variable
+import scipy.stats as stats
+import scipy.signal as signal
 
 
 def resize(x, length, axis=1):
@@ -51,7 +53,7 @@ def raw_to_df(data, labels, time, classes):
     }
     df = pd.DataFrame(datadict)
     df.set_index('time', inplace=True)
-    df = df.tz_localize('Europe/London')
+    # df = df.tz_localize('Europe/London', ambiguous='NaT', nonexistent='NaT')
     newindex = pd.date_range(df.index[0], df.index[-1], freq='30S')
     df = df.reindex(newindex)
 
@@ -96,6 +98,75 @@ def mlp_predict(model, data_loader, my_device, cfg, output_logits=False):
             torch.flatten(predictions_list).numpy(),
             np.array(pid_list),
         )
+
+
+def handcraft_features(xyz, sample_rate):
+    """Our baseline handcrafted features. xyz is a window of shape (N,3)"""
+
+    feats = {}
+    feats["xMean"], feats["yMean"], feats["zMean"] = np.mean(xyz, axis=0)
+    feats["xStd"], feats["yStd"], feats["zStd"] = np.std(xyz, axis=0)
+    feats["xRange"], feats["yRange"], feats["zRange"] = np.ptp(xyz, axis=0)
+
+    x, y, z = xyz.T
+
+    with np.errstate(
+        divide="ignore", invalid="ignore"
+    ):  # ignore div by 0 warnings
+        feats["xyCorr"] = np.nan_to_num(np.corrcoef(x, y)[0, 1])
+        feats["yzCorr"] = np.nan_to_num(np.corrcoef(y, z)[0, 1])
+        feats["zxCorr"] = np.nan_to_num(np.corrcoef(z, x)[0, 1])
+
+    m = np.linalg.norm(xyz, axis=1)
+
+    feats["mean"] = np.mean(m)
+    feats["std"] = np.std(m)
+    feats["range"] = np.ptp(m)
+    feats["mad"] = stats.median_abs_deviation(m)
+    feats["kurt"] = stats.kurtosis(m)
+    feats["skew"] = stats.skew(m)
+    feats["enmomean"] = np.mean(np.abs(m - 1))
+
+    # Spectrum using Welch's method with 3s segment length
+    # First run without detrending to get the true spectrum
+    freqs, powers = signal.welch(
+        m,
+        fs=sample_rate,
+        nperseg=3 * sample_rate,
+        noverlap=2 * sample_rate,
+        detrend=False,
+        average="median",
+    )
+
+    with np.errstate(
+        divide="ignore", invalid="ignore"
+    ):  # ignore div by 0 warnings
+        feats["pentropy"] = np.nan_to_num(stats.entropy(powers + 1e-16))
+
+    # Spectrum using Welch's method with 3s segment length
+    # Now do detrend to find dominant freqs
+    freqs, powers = signal.welch(
+        m,
+        fs=sample_rate,
+        nperseg=3 * sample_rate,
+        noverlap=2 * sample_rate,
+        detrend="constant",
+        average="median",
+    )
+
+    peaks, _ = signal.find_peaks(powers)
+    peak_powers = powers[peaks]
+    peak_freqs = freqs[peaks]
+    peak_ranks = np.argsort(peak_powers)[::-1]
+    if len(peaks) >= 2:
+        feats["f1"] = peak_freqs[peak_ranks[0]]
+        feats["f2"] = peak_freqs[peak_ranks[1]]
+    elif len(peaks) == 1:
+        feats["f1"] = feats["f2"] = peak_freqs[peak_ranks[0]]
+    else:
+        feats["f1"] = feats["f2"] = 0
+
+    return feats
 
 
 def classification_scores(Y_test, Y_test_pred):

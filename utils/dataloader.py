@@ -27,12 +27,16 @@ def load_data(cfg):
     labels = le.classes_
 
     group_train = np.load(os.path.join(cfg.pretrained_model_root, 'group_train.npy'))
+    group_train_rf = np.load(os.path.join(cfg.pretrained_model_root, 'rf_group_train.npy'))
     group_val = np.load(os.path.join(cfg.pretrained_model_root, 'group_val.npy'))
     group_test = np.load(os.path.join(cfg.pretrained_model_root, 'group_test.npy'))
+    group_test_rf = np.load(os.path.join(cfg.pretrained_model_root, 'rf_group_test.npy'))
 
     train_idx = np.isin(P, np.unique(group_train)).nonzero()[0]
+    train_idx_rf = np.isin(P, np.unique(group_train_rf)).nonzero()[0]
     val_idx = np.isin(P, np.unique(group_val)).nonzero()[0]
     test_idx = np.isin(P, np.unique(group_test)).nonzero()[0]
+    test_idx_rf = np.isin(P, np.unique(group_test_rf)).nonzero()[0]
 
     # p_idx = {}
     # for person in np.unique(P):
@@ -49,24 +53,32 @@ def load_data(cfg):
         "f4"
     )  # PyTorch defaults to float32
     # channels first: (N,M,3) -> (N,3,M). PyTorch uses channel first format
-    x_downsampled = np.transpose(x_downsampled, (0, 2, 1))
+    x_transposed = np.transpose(x_downsampled, (0, 2, 1))
 
-    x_train = x_downsampled[train_idx]
+    x_train = x_transposed[train_idx]
+    x_train_rf = x_downsampled[train_idx_rf]
     y_train = y[train_idx]
+    y_train_rf = y[train_idx_rf]
     time_train = time[train_idx]
+    time_train_rf = time[train_idx_rf]
 
-    x_val = x_downsampled[val_idx]
+    x_val = x_transposed[val_idx]
     y_val = y[val_idx]
     time_val = time[val_idx]
 
-    x_test = x_downsampled[test_idx]
+    x_test = x_transposed[test_idx]
+    x_test_rf = x_downsampled[test_idx_rf]
     y_test = y[test_idx]
+    y_test_rf = y[test_idx_rf]
     time_test = time[test_idx]
+    time_test_rf = time[test_idx_rf]
 
     return (
         x_train, y_train, group_train, time_train,
+        x_train_rf, y_train_rf, group_train_rf, time_train_rf,
         x_val, y_val, group_val, time_val,
         x_test, y_test, group_test, time_test,
+        x_test_rf, y_test_rf, group_test_rf, time_test_rf,
         le
     )
 

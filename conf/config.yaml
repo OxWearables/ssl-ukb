@@ -4,8 +4,9 @@ gpu_ids: [0, 1, 2]
 pretrained_model_root: /data/UKBB/gert/ssl/logging/cv_output/0
 
 hmm:
-  path: weights/hmm.npz
-  uniform_prior: true
+  path_ssl: weights/hmm_ssl.npz
+  path_rf: weights/hmm_rf.npz
+  uniform_prior: false
 
 data:
   name: 'capture24'
