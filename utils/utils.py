@@ -1,13 +1,8 @@
 import numpy as np
 import pandas as pd
 import torch
-import math
 from tqdm import tqdm
-import sklearn.metrics as metrics
-from scipy.interpolate import interp1d
 from torch.autograd import Variable
-import scipy.stats as stats
-import scipy.signal as signal
 
 
 def resize(x, length, axis=1):
@@ -18,6 +13,7 @@ def resize(x, length, axis=1):
     If X is channels-last, use axis=1 (default).
     If X is channels-first, use axis=2.
     """
+    from scipy.interpolate import interp1d
 
     length_orig = x.shape[axis]
     t_orig = np.linspace(0, 1, length_orig, endpoint=True)
@@ -28,36 +24,58 @@ def resize(x, length, axis=1):
     return x
 
 
-def raw_to_df(data, labels, time, classes):
-    label_matrix = np.zeros((len(time), len(classes)))
-    a_matrix = np.zeros(len(time))
+def raw_to_df(data, labels, time, classes, label_proba=False, freq='30S', reindex=True):
+    label_matrix = np.zeros((len(time), len(classes)), dtype=np.float32)
+    a_matrix = np.zeros(len(time), dtype=np.float32)
 
     for i, data in enumerate(data):
-        label = labels[i]
-        label_matrix[i, label] = 1
+        if not label_proba:
+            label = labels[i]
+            label_matrix[i, label] = 1
 
         x = data[:, 0]
         y = data[:, 1]
         z = data[:, 2]
 
-        a = math.fabs(math.sqrt(np.mean(x) ** 2 + np.mean(y) ** 2 + np.mean(z) ** 2) - 1) * 500
+        # a = (np.sqrt(np.mean(np.abs(x)) ** 2 + np.mean(np.abs(y)) ** 2 + np.mean(np.abs(z)) ** 2) - 0.5) * 1000
+        a = (np.sqrt(np.mean(x ** 2) + np.mean(y ** 2) + np.mean(z ** 2)) - 1) * 1000
         a_matrix[i] = a
 
-    datadict = {
-        'time': time,
-        'acc': a_matrix,
-        classes[0]: label_matrix[:, 0],
-        classes[1]: label_matrix[:, 1],
-        classes[2]: label_matrix[:, 2],
-        classes[3]: label_matrix[:, 3],
-    }
+    if label_proba:
+        datadict = {
+            'time': time,
+            'acc': a_matrix,
+            classes[0]: labels[:, 0],
+            classes[1]: labels[:, 1],
+            classes[2]: labels[:, 2],
+            classes[3]: labels[:, 3]
+        }
+    else:
+        datadict = {
+            'time': time,
+            'acc': a_matrix,
+            classes[0]: label_matrix[:, 0],
+            classes[1]: label_matrix[:, 1],
+            classes[2]: label_matrix[:, 2],
+            classes[3]: label_matrix[:, 3],
+        }
     df = pd.DataFrame(datadict)
-    df.set_index('time', inplace=True)
+    df = df.set_index('time')
     # df = df.tz_localize('Europe/London', ambiguous='NaT', nonexistent='NaT')
-    newindex = pd.date_range(df.index[0], df.index[-1], freq='30S')
-    df = df.reindex(newindex)
+    if reindex:
+        newindex = pd.date_range(df.index[0], df.index[-1], freq=freq)
+        df = df.reindex(newindex)
 
-    return df.copy()
+    return df
+
+
+def ukb_df_to_accplot(data, label_col):
+    df = data.copy()
+    dtype = pd.CategoricalDtype(categories=['light', 'moderate-vigorous', 'sedentary', 'sleep'])
+    labels = pd.get_dummies(df[label_col].astype(dtype))
+    df[labels.columns] = labels[labels.columns]
+    df = df.drop(['label', 'label_hmm'], axis=1)
+    return df
 
 
 def mlp_predict(model, data_loader, my_device, cfg, output_logits=False):
@@ -71,16 +89,12 @@ def mlp_predict(model, data_loader, my_device, cfg, output_logits=False):
         with torch.no_grad():
             my_X, my_Y = Variable(my_X), Variable(my_Y)
             my_X = my_X.to(my_device, dtype=torch.float)
-
-            # true_y = my_Y.to(my_device, dtype=torch.long)
             logits = model(my_X)
-            pred_y = torch.argmax(logits, dim=1)
-
-            # true_list.append(true_y.cpu())
             true_list.append(my_Y)
             if output_logits:
                 predictions_list.append(logits.cpu())
             else:
+                pred_y = torch.argmax(logits, dim=1)
                 predictions_list.append(pred_y.cpu())
             pid_list.extend(my_PID)
     true_list = torch.cat(true_list)
@@ -101,6 +115,8 @@ def mlp_predict(model, data_loader, my_device, cfg, output_logits=False):
 
 
 def handcraft_features(xyz, sample_rate):
+    import scipy.stats as stats
+    import scipy.signal as signal
     """Our baseline handcrafted features. xyz is a window of shape (N,3)"""
 
     feats = {}
@@ -170,6 +186,8 @@ def handcraft_features(xyz, sample_rate):
 
 
 def classification_scores(Y_test, Y_test_pred):
+    import sklearn.metrics as metrics
+
     cohen_kappa = metrics.cohen_kappa_score(Y_test, Y_test_pred)
     precision = metrics.precision_score(
         Y_test, Y_test_pred, average="macro", zero_division=0
@@ -211,3 +229,23 @@ def classification_report(results, report_path):
     return save_report(
         precision_list, recall_list, f1_list, cohen_kappa_list, report_path
     )
+
+
+def write_cluster_cmds(ukb_data_dir: str, output_file: str, group_file: str):
+    import os
+    from glob import glob
+    from pathlib import Path
+
+    cmd = 'python inference.py {input}'
+
+    with open(group_file, 'w') as g:
+        with open(output_file, 'w') as f:
+            files = glob(os.path.join(ukb_data_dir, '**/*.cwa.gz'))
+            for file in files:
+                f.write(cmd.format(input=file) + '\n')
+
+                path = Path(file)
+                group = path.parent.name
+                subject = path.stem.replace('.cwa', '').split('_')[0]
+
+                g.write('{g};{s}'.format(g=group, s=subject) + '\n')

@@ -117,11 +117,11 @@ class NormalDataset(Dataset):
 
         sample = self.X[idx, :]
 
-        y = None
+        y = np.NaN
         if self.isLabel:
             y = self.y[idx]
 
-        pid = None
+        pid = np.NaN
         if self.pid is not None:
             pid = self.pid[idx]
 
