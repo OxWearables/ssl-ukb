@@ -6,6 +6,8 @@ import logging
 import os
 import matplotlib.pyplot as plt
 import pandas as pd
+import sklearn.metrics as metrics
+import seaborn as sns
 
 from torch.utils.data import DataLoader
 from scipy.special import softmax
@@ -109,6 +111,9 @@ if __name__ == '__main__':
         result = utils.classification_scores(subject_true, subject_pred)
         result_hmm = utils.classification_scores(subject_true, subject_pred_hmm)
 
+        cmatrix = metrics.confusion_matrix(subject_true, subject_pred, labels=[0, 1, 2, 3])
+        cmatrix_hmm = metrics.confusion_matrix(subject_true, subject_pred_hmm, labels=[0, 1, 2, 3])
+
         # plot subject predictions
         df_true = utils.raw_to_df(x_test[subject_filter], subject_true, time_test[subject_filter], le.classes_)
         df_pred = utils.raw_to_df(x_test[subject_filter], subject_pred, time_test[subject_filter], le.classes_)
@@ -126,10 +131,10 @@ if __name__ == '__main__':
         fig.savefig('plots/{pid}_{model}_pred_hmm.png'.format(pid=current_pid, model=name), dpi=200)
         plt.close()
 
-        return result, result_hmm
+        return result, result_hmm, cmatrix, cmatrix_hmm
 
     log.info('Process results')
-    results, results_hmm = zip(*Parallel(n_jobs=8, verbose=0)(
+    results, results_hmm, cmatrix, cmatrix_hmm = zip(*Parallel(n_jobs=8, verbose=0)(
         delayed(score)('SSL', current_pid, pid_test, y_test, y_test_pred, y_test_pred_hmm) for current_pid in
         tqdm(my_pids)
     ))
@@ -137,13 +142,45 @@ if __name__ == '__main__':
     results = np.array(results)
     results_hmm = np.array(results_hmm)
 
-    results_rf, results_hmm_rf = zip(*Parallel(n_jobs=8, verbose=0)(
+    cmatrix = pd.DataFrame(np.sum(cmatrix, axis=0), index=le.classes_, columns=le.classes_)
+    cmatrix_hmm = pd.DataFrame(np.sum(cmatrix_hmm, axis=0), index=le.classes_, columns=le.classes_)
+
+    results_rf, results_hmm_rf, cmatrix_rf, cmatrix_hmm_rf = zip(*Parallel(n_jobs=8, verbose=0)(
         delayed(score)('RF', current_pid, pid_test, y_test_rf, y_test_pred_rf, y_test_pred_hmm_rf) for current_pid in
         tqdm(my_pids)
     ))
 
     results_rf = np.array(results_rf)
     results_hmm_rf = np.array(results_hmm_rf)
+
+    cmatrix_rf = pd.DataFrame(np.sum(cmatrix_rf, axis=0), index=le.classes_, columns=le.classes_)
+    cmatrix_hmm_rf = pd.DataFrame(np.sum(cmatrix_hmm_rf, axis=0), index=le.classes_, columns=le.classes_)
+
+    # confusion matrix plots
+    plots = {
+        'matrix_ssl': cmatrix,
+        'matrix_ssl_hmm': cmatrix_hmm,
+        'matrix_rf': cmatrix_rf,
+        'matrix_rf_hmm': cmatrix_hmm_rf,
+    }
+
+    log.info('Class list: \n %s', le.classes_)
+
+    for title in plots:
+        matrix: pd.DataFrame = plots[title]
+        matrix = matrix.div(matrix.sum(axis=1), axis=0).round(2)
+        plt.figure()
+        sns.heatmap(matrix, annot=True, vmin=0, vmax=1)
+        plt.title(title)
+        plt.xticks(rotation=40, ha='right')
+        # plt.ylabel('true', rotation=0), plt.xlabel('predicted')
+        plt.tight_layout()
+        plt.savefig('plots/{title}.png'.format(title=title), dpi=200)
+        plt.close()
+
+        log.info('Confusion %s', title)
+        log.info(matrix)
+        log.info('')
 
     # save reports
     dfr = utils.classification_report(results, 'report_ssl.csv')
