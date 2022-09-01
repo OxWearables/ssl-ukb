@@ -294,7 +294,8 @@ def imputeMissing(data: pd.DataFrame, extrapolate=True):
         if isinstance(subframe, pd.Series):
             x = subframe.to_numpy()
             nan = np.isnan(x)
-            if len(x[nan]) != len(x):  # check x is not all NaN
+            nanlen = len(x[nan])
+            if 0 < nanlen < len(x):  # check x contains a NaN and is not all NaN
                 x[nan] = np.nanmean(x)
                 return x  # will be cast back to a Series automatically
             else:
