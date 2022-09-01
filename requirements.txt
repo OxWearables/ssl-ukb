@@ -1,0 +1,16 @@
+joblib~=1.1.0
+torch~=1.12.1
+scikit-learn~=1.0.2
+scipy~=1.6.2
+numpy
+pandas
+tqdm
+matplotlib
+omegaconf
+imblearn
+dask
+pytz
+seaborn
+pyarrow
+actipy
+accelerometer
