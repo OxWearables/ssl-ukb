@@ -1,12 +1,15 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import pandas as pd
 import logging
 import os
 
 from torch.utils.data import DataLoader
 from scipy.special import softmax
 from omegaconf import OmegaConf
+from joblib import Parallel, delayed
+from tqdm import tqdm
 
 # own module imports
 import utils.utils as utils
@@ -43,9 +46,6 @@ def main():
     model_dict = torch.load(os.path.join(cfg.pretrained_model_root, 'state_dict.pt'), map_location=my_device)
     sslnet.load_state_dict(model_dict)
 
-    # load pretrained RF
-    rf: BalancedRandomForestClassifier = joblib.load(os.path.join(cfg.pretrained_model_root, 'rf.joblib'))
-
     # load raw data
     (
         x_train, y_train, group_train, time_train,
@@ -55,6 +55,26 @@ def main():
         x_test_rf, y_test_rf, group_test_rf, time_test_rf,
         le
     ) = load_data(cfg)
+
+    # train RF
+    rf = BalancedRandomForestClassifier(
+        n_estimators=3000,
+        replacement=True,
+        sampling_strategy="not minority",
+        n_jobs=8,
+        random_state=42,
+        oob_score=True
+    )
+
+    log.info('Extract RF features')
+    x_feats = Parallel(n_jobs=12)(
+        delayed(utils.handcraft_features)(x, sample_rate=cfg.data.sample_rate) for x in tqdm(x_train_rf)
+    )
+    x_feats = pd.DataFrame(x_feats).to_numpy()
+
+    log.info('Training RF')
+    rf.fit(x_feats, y_train_rf)
+    joblib.dump(rf, cfg.rf.path)
 
     # construct dataloader
     val_dataset = NormalDataset(x_val, y_val, pid=group_val, name="val", is_labelled=True)
@@ -87,7 +107,7 @@ def main():
 
     # HMM training (RF)
     log.info('Training RF-HMM')
-    hmm_rf = HMM(le.transform(rf.classes_), uniform_prior=cfg.hmm.uniform_prior)
+    hmm_rf = HMM(rf.classes_, uniform_prior=cfg.hmm.uniform_prior)
     hmm_rf.train(rf.oob_decision_function_, y_train_rf)
     hmm_rf.save(cfg.hmm.path_rf)
 

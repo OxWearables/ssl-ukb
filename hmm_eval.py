@@ -43,14 +43,14 @@ if __name__ == '__main__':
 
     # load pretrained SSL model and weights
     repo = 'OxWearables/ssl-wearables'
-    sslnet: nn.Module = torch.hub.load(repo, 'harnet30', class_num=4, pretrained=True)
+    sslnet: nn.Module = torch.hub.load(repo, 'harnet30', class_num=4, pretrained=False)
     sslnet.to(my_device)
 
     model_dict = torch.load(os.path.join(cfg.pretrained_model_root, 'state_dict.pt'), map_location=my_device)
     sslnet.load_state_dict(model_dict)
 
     # load pretrained RF
-    rf: BalancedRandomForestClassifier = joblib.load(os.path.join(cfg.pretrained_model_root, 'rf.joblib'))
+    rf: BalancedRandomForestClassifier = joblib.load(cfg.rf.path)
 
     # load raw data
     (
@@ -66,7 +66,7 @@ if __name__ == '__main__':
     hmm_ssl = HMM(le.transform(le.classes_), uniform_prior=cfg.hmm.uniform_prior)
     hmm_ssl.load(cfg.hmm.path_ssl)
 
-    hmm_rf = HMM(le.transform(rf.classes_), uniform_prior=cfg.hmm.uniform_prior)
+    hmm_rf = HMM(rf.classes_, uniform_prior=cfg.hmm.uniform_prior)
     hmm_rf.load(cfg.hmm.path_rf)
 
     # data loader
@@ -92,7 +92,7 @@ if __name__ == '__main__':
     log.info('Get RF test predictions')
     x_feats = pd.DataFrame(x_feats).to_numpy()
 
-    y_test_pred_rf = le.transform(rf.predict(x_feats))
+    y_test_pred_rf = rf.predict(x_feats)
 
     # HMM smoothed predictions
     log.info('Get HMM smoothed predictions')

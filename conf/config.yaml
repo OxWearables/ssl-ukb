@@ -11,6 +11,9 @@ hmm:
   path_rf: weights/hmm_rf.npz
   uniform_prior: true
 
+rf:
+  path: weights/rf.joblib
+
 data:
   name: 'capture24'
   output_size: 4
