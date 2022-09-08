@@ -1,6 +1,10 @@
 import numpy as np
 import pandas as pd
 
+# Capture24 class labels
+labels_ = np.array(['light', 'moderate-vigorous', 'sedentary', 'sleep'])
+classes_ = np.array([0, 1, 2, 3])
+
 
 def resize(x, length, axis=1):
     """Resize the temporal length using linear interpolation.
@@ -21,7 +25,24 @@ def resize(x, length, axis=1):
     return x
 
 
-def raw_to_df(data, labels, time, classes, label_proba=False, freq='30S', reindex=True):
+def raw_to_df(data, labels, time, classes, label_proba=False, reindex=True, freq='30S'):
+    """
+    Construct a DataFrome from the raw data, prediction labels and time Numpy arrays.
+
+    :param data: Numpy acc data, shape (rows, window_len, 3)
+    :param labels: Either a scalar label array with shape (rows, ),
+                    or the probabilities for each class if label_proba==True with shape (rows, len(classes)).
+    :param time: Numpy time array, shape (rows, )
+    :param classes: Array with the categorical class labels.
+                    The index of this array should correspond to the labels value when label_proba==False.
+    :param label_proba: If True, assume 'labels' contains the raw class probabilities.
+    :param reindex: Reindex the dataframe to fill missing values
+    :param freq: Reindex frequency
+    :return: Dataframe
+        Index: DatetimeIndex
+        Columns: acc, classes
+    :rtype: pd.DataFrame
+    """
     label_matrix = np.zeros((len(time), len(classes)), dtype=np.float32)
     a_matrix = np.zeros(len(time), dtype=np.float32)
 
@@ -194,26 +215,26 @@ def handcraft_features(xyz, sample_rate):
     return feats
 
 
-def classification_scores(Y_test, Y_test_pred):
+def classification_scores(y_test, y_test_pred):
     import sklearn.metrics as metrics
 
-    cohen_kappa = metrics.cohen_kappa_score(Y_test, Y_test_pred)
+    cohen_kappa = metrics.cohen_kappa_score(y_test, y_test_pred)
     precision = metrics.precision_score(
-        Y_test, Y_test_pred, average="macro", zero_division=0
+        y_test, y_test_pred, average="macro", zero_division=0
     )
     recall = metrics.recall_score(
-        Y_test, Y_test_pred, average="macro", zero_division=0
+        y_test, y_test_pred, average="macro", zero_division=0
     )
     f1 = metrics.f1_score(
-        Y_test, Y_test_pred, average="macro", zero_division=0
+        y_test, y_test_pred, average="macro", zero_division=0
     )
 
     return cohen_kappa, precision, recall, f1
 
 
-def save_report(
-    precision_list, recall_list, f1_list, cohen_kappa_list, report_path
-):
+def save_report(precision_list, recall_list, f1_list, cohen_kappa_list, report_path):
+    log = get_logger()
+
     data = {
         "precision": precision_list,
         "recall": recall_list,
@@ -224,11 +245,12 @@ def save_report(
     df = pd.DataFrame(data)
     df.to_csv(report_path, index=False)
 
+    log.info('Report saved to %s', report_path)
+
     return df
 
 
 def classification_report(results, report_path):
-    # logger is a tf logger
     # Collate metrics
     cohen_kappa_list = [result[0] for result in results]
     precision_list = [result[1] for result in results]
@@ -241,6 +263,13 @@ def classification_report(results, report_path):
 
 
 def write_cluster_cmds(ukb_data_dir: str, output_file: str, group_file: str):
+    """
+    Write commands to a file for cluster processing in an array job.
+
+    :param ukb_data_dir: Path to UKB accelerometer files
+    :param output_file: Commands output file
+    :param group_file: Extra output file with group;pid data
+    """
     import os
     from glob import glob
     from pathlib import Path
@@ -258,3 +287,41 @@ def write_cluster_cmds(ukb_data_dir: str, output_file: str, group_file: str):
                 subject = path.stem.replace('.cwa', '').split('_')[0]
 
                 g.write('{g};{s}'.format(g=group, s=subject) + '\n')
+
+
+def plot(data):
+    """
+    Simple wrapper function that takes a prediction dataframe and plots it. For data inspection and debugging.
+
+    :param str | pd.DataFrame data: Path to parquet file, or the preloaded dataframe object.
+    """
+    from accelerometer.accPlot import plotTimeSeries
+
+    if isinstance(data, str):
+        df = pd.read_parquet(data)
+    else:
+        df = data
+
+    df = ukb_df_to_series(df, 'label_hmm')
+
+    fig = plotTimeSeries(df)
+    fig.show()
+
+
+def get_logger():
+    """
+    Return a shared logger for the package.
+    """
+    import logging
+
+    log = logging.getLogger('ssl-ukb')
+    log.setLevel(logging.DEBUG)
+
+    if not log.hasHandlers():
+        handler = logging.StreamHandler()
+        fmt = logging.Formatter(fmt='%(asctime)s %(message)s',
+                                datefmt='%Y-%m-%d %H:%M:%S')
+        handler.setFormatter(fmt)
+        log.addHandler(handler)
+
+    return log

@@ -1,5 +1,4 @@
 import torch
-import logging
 import os
 import utils.utils as utils
 import numpy as np
@@ -7,7 +6,7 @@ import pandas as pd
 from torch.utils.data.dataset import Dataset
 from sklearn import preprocessing
 
-log = logging.getLogger('hmm')
+log = utils.get_logger()
 
 
 def load_data(cfg):

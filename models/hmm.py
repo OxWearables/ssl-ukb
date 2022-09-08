@@ -2,6 +2,10 @@ import numpy as np
 
 
 class HMM:
+    """
+    Implement a basic HMM model with parameter saving/loading.
+    """
+
     def __init__(self, labels=None, uniform_prior=True):
         self.prior = None
         self.emission = None
@@ -82,11 +86,21 @@ class HMM:
         return viterbi_path
 
     def save(self, path):
+        """
+        Save model parameters to a Numpy npz file.
+
+        :param str path: npz file location
+        """
         np.savez(path,
                  prior=self.prior, emission=self.emission,
                  transition=self.transition, labels=self.labels)
 
     def load(self, path):
+        """
+        Load model parameters from a Numpy npz file.
+
+        :param str path: npz file location
+        """
         d = np.load(path)
         self.prior = d['prior']
         self.emission = d['emission']

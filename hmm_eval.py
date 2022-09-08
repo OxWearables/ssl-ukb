@@ -1,8 +1,17 @@
+"""
+Evaluate the following models: RF, SSL, RF+HMM, SSL+HMM
+Requires the pretrained SSL and HMM (hmm_train.py)
+
+Output:
+- A report in .csv for each model with per-subject classification performance.
+- Per-subject time series plots for RF+HMM and SSL+HMM in the 'plots' folder
+- Confusion matrix plots in the 'plots' folder
+"""
+
 import joblib
 import torch
 import torch.nn as nn
 import numpy as np
-import logging
 import os
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -10,7 +19,6 @@ import sklearn.metrics as metrics
 import seaborn as sns
 
 from torch.utils.data import DataLoader
-from scipy.special import softmax
 from omegaconf import OmegaConf
 from accelerometer.accPlot import plotTimeSeries
 from tqdm import tqdm
@@ -22,9 +30,7 @@ import utils.utils as utils
 from models.hmm import HMM
 from utils.dataloader import NormalDataset, load_data
 
-log = logging.getLogger('hmm')
-log.setLevel(logging.DEBUG)
-log.addHandler(logging.StreamHandler())
+log = utils.get_logger()
 
 if __name__ == '__main__':
     cfg = OmegaConf.load("conf/config.yaml")
@@ -64,10 +70,10 @@ if __name__ == '__main__':
 
     # load pretrained HMM
     hmm_ssl = HMM(le.transform(le.classes_), uniform_prior=cfg.hmm.uniform_prior)
-    hmm_ssl.load(cfg.hmm.path_ssl)
+    hmm_ssl.load(cfg.hmm.weights_ssl)
 
     hmm_rf = HMM(rf.classes_, uniform_prior=cfg.hmm.uniform_prior)
-    hmm_rf.load(cfg.hmm.path_rf)
+    hmm_rf.load(cfg.hmm.weights_rf)
 
     # data loader
     test_dataset = NormalDataset(x_test, y_test, pid=group_test, name="test", is_labelled=True)
@@ -76,7 +82,7 @@ if __name__ == '__main__':
         test_dataset,
         batch_size=1000,
         shuffle=False,
-        num_workers=6,
+        num_workers=0,
     )
 
     log.info('Get SSL test predictions')
@@ -85,7 +91,7 @@ if __name__ == '__main__':
     )
 
     log.info('Extract RF features')
-    x_feats = Parallel(n_jobs=20, verbose=0)(
+    x_feats = Parallel(n_jobs=cfg.num_workers, verbose=0)(
         delayed(utils.handcraft_features)(x, sample_rate=cfg.data.sample_rate) for x in tqdm(x_test_rf)
     )
 
@@ -99,7 +105,7 @@ if __name__ == '__main__':
     y_test_pred_hmm = hmm_ssl.viterbi(y_test_pred)
     y_test_pred_hmm_rf = hmm_rf.viterbi(y_test_pred_rf)
 
-    # save performance scores for every single subject
+    # save performance scores and plots for every single subject
     my_pids = np.unique(pid_test)
 
     def score(name, current_pid, pid, y, y_pred, y_pred_hmm):
@@ -134,7 +140,9 @@ if __name__ == '__main__':
         return result, result_hmm, cmatrix, cmatrix_hmm
 
     log.info('Process results')
-    results, results_hmm, cmatrix, cmatrix_hmm = zip(*Parallel(n_jobs=8, verbose=0)(
+    # Use joblib lazy parallel cause plotting is slow
+    # SSL results
+    results, results_hmm, cmatrix, cmatrix_hmm = zip(*Parallel(n_jobs=cfg.num_workers)(
         delayed(score)('SSL', current_pid, pid_test, y_test, y_test_pred, y_test_pred_hmm) for current_pid in
         tqdm(my_pids)
     ))
@@ -145,7 +153,8 @@ if __name__ == '__main__':
     cmatrix = pd.DataFrame(np.sum(cmatrix, axis=0), index=le.classes_, columns=le.classes_)
     cmatrix_hmm = pd.DataFrame(np.sum(cmatrix_hmm, axis=0), index=le.classes_, columns=le.classes_)
 
-    results_rf, results_hmm_rf, cmatrix_rf, cmatrix_hmm_rf = zip(*Parallel(n_jobs=8, verbose=0)(
+    # RF results
+    results_rf, results_hmm_rf, cmatrix_rf, cmatrix_hmm_rf = zip(*Parallel(n_jobs=cfg.num_workers)(
         delayed(score)('RF', current_pid, pid_test, y_test_rf, y_test_pred_rf, y_test_pred_hmm_rf) for current_pid in
         tqdm(my_pids)
     ))
@@ -168,7 +177,7 @@ if __name__ == '__main__':
 
     for title in plots:
         matrix: pd.DataFrame = plots[title]
-        matrix = matrix.div(matrix.sum(axis=1), axis=0).round(2)
+        matrix = matrix.div(matrix.sum(axis=1), axis=0).round(2)  # normalise
         plt.figure()
         sns.heatmap(matrix, annot=True, vmin=0, vmax=1)
         plt.title(title)
@@ -182,9 +191,9 @@ if __name__ == '__main__':
         log.info(matrix)
         log.info('')
 
-    # save reports
-    dfr = utils.classification_report(results, 'report_ssl.csv')
-    dfr_hmm = utils.classification_report(results_hmm, 'report_ssl_hmm.csv')
+    # save SSL reports
+    dfr = utils.classification_report(results, os.path.join(cfg.ukb_output_root, 'report_ssl.csv'))
+    dfr_hmm = utils.classification_report(results_hmm, os.path.join(cfg.ukb_output_root, 'report_ssl_hmm.csv'))
 
     log.info('Results SSL: ')
     log.info(dfr.mean())
@@ -192,9 +201,9 @@ if __name__ == '__main__':
     log.info('\nResults SSL-HMM: ')
     log.info(dfr_hmm.mean())
 
-    # save reports
-    dfr_rf = utils.classification_report(results_rf, 'report_rf.csv')
-    dfr_hmm_rf = utils.classification_report(results_hmm_rf, 'report_rf_hmm.csv')
+    # save RF reports
+    dfr_rf = utils.classification_report(results_rf, os.path.join(cfg.ukb_output_root, 'report_rf.csv'))
+    dfr_hmm_rf = utils.classification_report(results_hmm_rf, os.path.join(cfg.ukb_output_root, 'report_rf_hmm.csv'))
 
     log.info('\nResults RF: ')
     log.info(dfr_rf.mean())
