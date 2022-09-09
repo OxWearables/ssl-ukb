@@ -13,7 +13,6 @@ A Numpy archive (.npz) with the HMM model matrices (see models.HMM class)
 import os
 import joblib
 import torch
-import torch.nn as nn
 import numpy as np
 import pandas as pd
 
@@ -27,6 +26,7 @@ from imblearn.ensemble import BalancedRandomForestClassifier
 # own module imports
 import utils.utils as utils
 from models.hmm import HMM
+import models.sslnet as ssl
 from utils.dataloader import NormalDataset, load_data
 
 log = utils.get_logger()
@@ -47,13 +47,7 @@ if __name__ == "__main__":
         my_device = "cpu"
 
     # load pretrained SSL model and weights
-    repo = 'OxWearables/ssl-wearables'
-    sslnet: nn.Module = torch.hub.load(repo, 'harnet30', class_num=4, pretrained=False)
-
-    model_dict = torch.load(os.path.join(cfg.pretrained_model_root, 'state_dict.pt'), map_location=my_device)
-    sslnet.load_state_dict(model_dict)
-    sslnet.eval()
-    sslnet.to(my_device)
+    sslnet = ssl.get_sslnet(my_device, cfg, eval=True, load_weights=True)
 
     # load raw data
     (
@@ -98,8 +92,8 @@ if __name__ == "__main__":
     # HMM training (SSL)
     log.info('Training SSL-HMM')
     log.info('Getting SSLNET validation predictions')
-    y_val, y_val_pred, pid_val = utils.mlp_predict(
-        sslnet, val_loader, my_device, cfg, output_logits=True
+    y_val, y_val_pred, pid_val = ssl.predict(
+        sslnet, val_loader, my_device, output_logits=True
     )
 
     # softmax logits

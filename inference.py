@@ -19,7 +19,6 @@ import actipy
 import argparse
 import os
 import torch
-import torch.nn as nn
 import pandas as pd
 import numpy as np
 
@@ -30,6 +29,7 @@ from utils.dataloader import NormalDataset
 from datetime import datetime
 
 from models.hmm import HMM
+import models.sslnet as ssl
 import utils.utils as utils
 
 DEVICE_HZ = 30  # Hz
@@ -149,33 +149,16 @@ if __name__ == '__main__':
     )
 
     # load pretrained SSL model and weights
-    if cfg.torch_path:
-        # use repo from disk (for offline use)
-        log.info('Using %s', cfg.torch_path)
-        sslnet: nn.Module = torch.hub.load(cfg.torch_path, 'harnet30', source='local', class_num=4, pretrained=False)
-    else:
-        # download repo from github
-        repo = 'OxWearables/ssl-wearables'
-        torch.hub.set_dir(cfg.torch_cache)
-        sslnet: nn.Module = torch.hub.load(repo, 'harnet30', class_num=4, pretrained=False)
-
-    # load pretrained weights
-    model_dict = torch.load(cfg.sslnet.weights, map_location=my_device)
-    sslnet.load_state_dict(model_dict)
-    sslnet.eval()
-    sslnet.to(my_device)
-
-    sslnet.labels_ = utils.labels_
-    sslnet.classes_ = utils.classes_
+    sslnet = ssl.get_sslnet(my_device, cfg, eval=True, load_weights=True)
 
     # load pretrained HMM
-    hmm_ssl = HMM(sslnet.classes_, uniform_prior=cfg.hmm.uniform_prior)
+    hmm_ssl = HMM(sslnet.classes, uniform_prior=cfg.hmm.uniform_prior)
     hmm_ssl.load(cfg.hmm.weights_ssl)
 
     # do inference
     log.info('SSL inference')
-    _, y_prob, _ = utils.mlp_predict(
-        sslnet, dataloader, my_device, cfg, output_logits=True
+    _, y_prob, _ = ssl.predict(
+        sslnet, dataloader, my_device, output_logits=True
     )
 
     y_pred = np.argmax(y_prob, axis=1)
@@ -184,11 +167,11 @@ if __name__ == '__main__':
     y_pred_hmm = hmm_ssl.viterbi(y_pred)
 
     # construct dataframe
-    df = utils.raw_to_df(X, y_prob, T, sslnet.labels_, label_proba=True, reindex=False)
+    df = utils.raw_to_df(X, y_prob, T, sslnet.labels, label_proba=True, reindex=False)
 
-    dtype = pd.CategoricalDtype(categories=sslnet.labels_)
-    df['label'] = pd.Series(sslnet.labels_[y_pred], index=df.index, dtype=dtype)
-    df['label_hmm'] = pd.Series(sslnet.labels_[y_pred_hmm], index=df.index, dtype=dtype)
+    dtype = pd.CategoricalDtype(categories=sslnet.labels)
+    df['label'] = pd.Series(sslnet.labels[y_pred], index=df.index, dtype=dtype)
+    df['label_hmm'] = pd.Series(sslnet.labels[y_pred_hmm], index=df.index, dtype=dtype)
 
     # reindex for missing values
     newindex = pd.date_range(data_start, data_end, freq='{s}S'.format(s=WINDOW_SEC))

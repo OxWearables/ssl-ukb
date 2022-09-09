@@ -10,7 +10,6 @@ Output:
 
 import joblib
 import torch
-import torch.nn as nn
 import numpy as np
 import os
 import matplotlib.pyplot as plt
@@ -28,6 +27,7 @@ from imblearn.ensemble import BalancedRandomForestClassifier
 # own module imports
 import utils.utils as utils
 from models.hmm import HMM
+import models.sslnet as ssl
 from utils.dataloader import NormalDataset, load_data
 
 log = utils.get_logger()
@@ -48,12 +48,7 @@ if __name__ == '__main__':
         my_device = "cpu"
 
     # load pretrained SSL model and weights
-    repo = 'OxWearables/ssl-wearables'
-    sslnet: nn.Module = torch.hub.load(repo, 'harnet30', class_num=4, pretrained=False)
-    sslnet.to(my_device)
-
-    model_dict = torch.load(os.path.join(cfg.pretrained_model_root, 'state_dict.pt'), map_location=my_device)
-    sslnet.load_state_dict(model_dict)
+    sslnet = ssl.get_sslnet(my_device, cfg, eval=True, load_weights=True)
 
     # load pretrained RF
     rf: BalancedRandomForestClassifier = joblib.load(cfg.rf.path)
@@ -86,8 +81,8 @@ if __name__ == '__main__':
     )
 
     log.info('Get SSL test predictions')
-    y_test, y_test_pred, pid_test = utils.mlp_predict(
-        sslnet, test_loader, my_device, cfg, output_logits=False
+    y_test, y_test_pred, pid_test = ssl.predict(
+        sslnet, test_loader, my_device, output_logits=False
     )
 
     log.info('Extract RF features')

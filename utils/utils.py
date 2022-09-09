@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 
 # Capture24 class labels
-labels_ = np.array(['light', 'moderate-vigorous', 'sedentary', 'sleep'])
-classes_ = np.array([0, 1, 2, 3])
+labels = np.array(['light', 'moderate-vigorous', 'sedentary', 'sleep'])
+classes = np.array([0, 1, 2, 3])
 
 
 def resize(x, length, axis=1):
@@ -103,45 +103,6 @@ def ukb_df_to_series(df: pd.DataFrame, label_col: str):
     df.loc[labels[np.nan].astype('boolean')] = np.nan
     df = df.drop(['label', 'label_hmm', np.nan], axis=1, errors='ignore')
     return df
-
-
-def mlp_predict(model, data_loader, my_device, cfg, output_logits=False):
-    import torch
-    from torch.autograd import Variable
-    from tqdm import tqdm
-    predictions_list = []
-    true_list = []
-    pid_list = []
-    model.eval()
-    if my_device == 'cpu':
-        torch.set_flush_denormal(True)
-    for i, (my_X, my_Y, my_PID) in enumerate(tqdm(data_loader)):
-        with torch.no_grad():
-            my_X, my_Y = Variable(my_X), Variable(my_Y)
-            my_X = my_X.to(my_device, dtype=torch.float)
-            logits = model(my_X)
-            true_list.append(my_Y)
-            if output_logits:
-                predictions_list.append(logits.cpu())
-            else:
-                pred_y = torch.argmax(logits, dim=1)
-                predictions_list.append(pred_y.cpu())
-            pid_list.extend(my_PID)
-    true_list = torch.cat(true_list)
-    predictions_list = torch.cat(predictions_list)
-
-    if output_logits:
-        return (
-            torch.flatten(true_list).numpy(),
-            predictions_list.numpy(),
-            np.array(pid_list),
-        )
-    else:
-        return (
-            torch.flatten(true_list).numpy(),
-            torch.flatten(predictions_list).numpy(),
-            np.array(pid_list),
-        )
 
 
 def handcraft_features(xyz, sample_rate):

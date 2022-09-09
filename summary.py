@@ -52,7 +52,7 @@ if __name__ == '__main__':
     }
 
     log.info('Calculating summary stats')
-    data, data_imputed, _ = getActivitySummary(df, df_info, summary, utils.labels_, imputation=True)
+    data, data_imputed, _ = getActivitySummary(df, df_info, summary, utils.labels, imputation=True)
 
     # output is a dataframe with 1 row
     df_summary = pd.DataFrame(summary, index=[0])
