@@ -2,9 +2,9 @@
 Train 2 HMM models.
 
 RF-HMM: Trained with out-of-bag predictions of a RF with handcrafted features.
-        Will extract features and train the RF, and joblib dump the full RF model for later use.
+        Will extract features and train the RF from scratch, and joblib dump the trained RF model for later use.
 
-SSL-HMM: Trained on the predictions of the validation fold of the SSL. Will use the pretrained SSL.
+SSL-HMM: Trained on the predictions of the validation fold of a pretrained SSLNet.
 
 Output:
 A Numpy archive (.npz) with the HMM model matrices (see models.HMM class)
@@ -19,14 +19,12 @@ import pandas as pd
 from torch.utils.data import DataLoader
 from scipy.special import softmax
 from omegaconf import OmegaConf
-from joblib import Parallel, delayed
-from tqdm import tqdm
-from imblearn.ensemble import BalancedRandomForestClassifier
 
 # own module imports
 import utils.utils as utils
-from models.hmm import HMM
 import models.sslnet as ssl
+import models.rf as rf
+from models.hmm import HMM
 from utils.dataloader import NormalDataset, load_data
 
 log = utils.get_logger()
@@ -46,9 +44,6 @@ if __name__ == "__main__":
     else:
         my_device = "cpu"
 
-    # load pretrained SSL model and weights
-    sslnet = ssl.get_sslnet(my_device, cfg, eval=True, load_weights=True)
-
     # load raw data
     (
         x_train, y_train, group_train, time_train,
@@ -60,24 +55,18 @@ if __name__ == "__main__":
     ) = load_data(cfg)
 
     # train RF
-    rf = BalancedRandomForestClassifier(
-        n_estimators=3000,
-        replacement=True,
-        sampling_strategy="not minority",
-        n_jobs=cfg.num_workers,
-        random_state=42,
-        oob_score=True
-    )
+    rfmodel = rf.get_rf(num_workers=cfg.num_workers)
 
     log.info('Extract RF features')
-    x_feats = Parallel(n_jobs=cfg.num_workers)(
-        delayed(utils.handcraft_features)(x, sample_rate=cfg.data.sample_rate) for x in tqdm(x_train_rf)
-    )
-    x_feats = pd.DataFrame(x_feats).to_numpy()
+    x_feats = rf.extract_features(x_train_rf, sample_rate=cfg.data.sample_rate, num_workers=cfg.num_workers)
 
     log.info('Training RF')
-    rf.fit(x_feats, y_train_rf)
-    joblib.dump(rf, cfg.rf.path)
+    rfmodel.fit(x_feats, y_train_rf)
+    joblib.dump(rfmodel, cfg.rf.path)
+    log.info('RF saved to %s', cfg.rf.path)
+
+    # load pretrained SSL model and weights
+    sslnet = ssl.get_sslnet(my_device, cfg, eval=True, load_weights=True)
 
     # construct dataloader for SSL inference
     val_dataset = NormalDataset(x_val, y_val, pid=group_val, name="val", is_labelled=True)
@@ -86,12 +75,12 @@ if __name__ == "__main__":
         val_dataset,
         batch_size=1000,
         shuffle=False,
-        num_workers=6,
+        num_workers=0,
     )
 
     # HMM training (SSL)
     log.info('Training SSL-HMM')
-    log.info('Getting SSLNET validation predictions')
+    log.info('Getting SSLNet validation predictions')
     y_val, y_val_pred, pid_val = ssl.predict(
         sslnet, val_loader, my_device, output_logits=True
     )
@@ -109,10 +98,10 @@ if __name__ == "__main__":
 
     # HMM training (RF)
     log.info('Training RF-HMM')
-    hmm_rf = HMM(rf.classes_, uniform_prior=cfg.hmm.uniform_prior)
-    hmm_rf.train(rf.oob_decision_function_, y_train_rf)
+    hmm_rf = HMM(rfmodel.classes_, uniform_prior=cfg.hmm.uniform_prior)
+    hmm_rf.train(rfmodel.oob_decision_function_, y_train_rf)
     hmm_rf.save(cfg.hmm.weights_rf)
 
     log.info(hmm_rf)
-    log.info(rf.classes_)
+    log.info(rfmodel.classes_)
     log.info('RF-HMM saved to %s', cfg.hmm.weights_rf)

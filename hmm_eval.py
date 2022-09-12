@@ -1,6 +1,6 @@
 """
 Evaluate the following models: RF, SSL, RF+HMM, SSL+HMM
-Requires the pretrained SSL and HMM (hmm_train.py)
+Requires the pretrained RF, SSL and HMMs (trained with hmm_train.py)
 
 Output:
 - A report in .csv for each model with per-subject classification performance.
@@ -26,8 +26,9 @@ from imblearn.ensemble import BalancedRandomForestClassifier
 
 # own module imports
 import utils.utils as utils
-from models.hmm import HMM
 import models.sslnet as ssl
+import models.rf as rf
+from models.hmm import HMM
 from utils.dataloader import NormalDataset, load_data
 
 log = utils.get_logger()
@@ -51,7 +52,7 @@ if __name__ == '__main__':
     sslnet = ssl.get_sslnet(my_device, cfg, eval=True, load_weights=True)
 
     # load pretrained RF
-    rf: BalancedRandomForestClassifier = joblib.load(cfg.rf.path)
+    rfmodel: BalancedRandomForestClassifier = joblib.load(cfg.rf.path)
 
     # load raw data
     (
@@ -67,10 +68,10 @@ if __name__ == '__main__':
     hmm_ssl = HMM(le.transform(le.classes_), uniform_prior=cfg.hmm.uniform_prior)
     hmm_ssl.load(cfg.hmm.weights_ssl)
 
-    hmm_rf = HMM(rf.classes_, uniform_prior=cfg.hmm.uniform_prior)
+    hmm_rf = HMM(rfmodel.classes_, uniform_prior=cfg.hmm.uniform_prior)
     hmm_rf.load(cfg.hmm.weights_rf)
 
-    # data loader
+    # SSL data loader
     test_dataset = NormalDataset(x_test, y_test, pid=group_test, name="test", is_labelled=True)
 
     test_loader = DataLoader(
@@ -80,20 +81,17 @@ if __name__ == '__main__':
         num_workers=0,
     )
 
+    # get test predictions
     log.info('Get SSL test predictions')
     y_test, y_test_pred, pid_test = ssl.predict(
         sslnet, test_loader, my_device, output_logits=False
     )
 
     log.info('Extract RF features')
-    x_feats = Parallel(n_jobs=cfg.num_workers, verbose=0)(
-        delayed(utils.handcraft_features)(x, sample_rate=cfg.data.sample_rate) for x in tqdm(x_test_rf)
-    )
+    x_feats = rf.extract_features(x_test_rf, sample_rate=cfg.data.sample_rate, num_workers=cfg.num_workers)
 
     log.info('Get RF test predictions')
-    x_feats = pd.DataFrame(x_feats).to_numpy()
-
-    y_test_pred_rf = rf.predict(x_feats)
+    y_test_pred_rf = rfmodel.predict(x_feats)
 
     # HMM smoothed predictions
     log.info('Get HMM smoothed predictions')
