@@ -1,6 +1,6 @@
 """
 Evaluate the following models: RF, SSL, RF+HMM, SSL+HMM
-Requires the pretrained RF, SSL and HMMs (trained with hmm_train.py)
+Requires the pretrained RF, SSL and HMMs (trained with train.py)
 
 Output:
 - A report in .csv for each model with per-subject classification performance.
