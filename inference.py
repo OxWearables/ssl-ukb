@@ -175,7 +175,7 @@ if __name__ == '__main__':
 
     # reindex for missing values
     newindex = pd.date_range(data_start, data_end, freq='{s}S'.format(s=WINDOW_SEC))
-    df = df.reindex(newindex)
+    df = df.reindex(newindex, method='nearest', fill_value=np.nan, tolerance='5S')
     log.info('Done')
 
     # save dataframe
