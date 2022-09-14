@@ -20,16 +20,15 @@ def get_sslnet(device, cfg, eval=True, load_weights=True, pretrained=False):
     :rtype: nn.Module
     """
 
-    if cfg.torch_path:
+    if cfg.ssl_repo_path:
         # use repo from disk (for offline use)
-        log.info('Using local %s', cfg.torch_path)
-        sslnet: nn.Module = torch.hub.load(cfg.torch_path, 'harnet30', source='local', class_num=4,
+        log.info('Using local %s', cfg.ssl_repo_path)
+        sslnet: nn.Module = torch.hub.load(cfg.ssl_repo_path, 'harnet30', source='local', class_num=4,
                                            pretrained=pretrained)
     else:
         # download repo from github
         repo = 'OxWearables/ssl-wearables'
-        torch.hub.set_dir(cfg.torch_cache)
-        sslnet: nn.Module = torch.hub.load(repo, 'harnet30', class_num=4, pretrained=pretrained)
+        sslnet: nn.Module = torch.hub.load(repo, 'harnet30', trust_repo=True, class_num=4, pretrained=pretrained)
 
     if load_weights:
         # load pretrained weights

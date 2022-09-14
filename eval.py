@@ -185,8 +185,8 @@ if __name__ == '__main__':
         log.info('')
 
     # save SSL reports
-    dfr = utils.classification_report(results, os.path.join(cfg.ukb_output_root, 'report_ssl.csv'))
-    dfr_hmm = utils.classification_report(results_hmm, os.path.join(cfg.ukb_output_root, 'report_ssl_hmm.csv'))
+    dfr = utils.classification_report(results, os.path.join(cfg.ukb_output_path, 'report_ssl.csv'))
+    dfr_hmm = utils.classification_report(results_hmm, os.path.join(cfg.ukb_output_path, 'report_ssl_hmm.csv'))
 
     log.info('Results SSL: ')
     log.info(dfr.mean())
@@ -195,8 +195,8 @@ if __name__ == '__main__':
     log.info(dfr_hmm.mean())
 
     # save RF reports
-    dfr_rf = utils.classification_report(results_rf, os.path.join(cfg.ukb_output_root, 'report_rf.csv'))
-    dfr_hmm_rf = utils.classification_report(results_hmm_rf, os.path.join(cfg.ukb_output_root, 'report_rf_hmm.csv'))
+    dfr_rf = utils.classification_report(results_rf, os.path.join(cfg.ukb_output_path, 'report_rf.csv'))
+    dfr_hmm_rf = utils.classification_report(results_hmm_rf, os.path.join(cfg.ukb_output_path, 'report_rf_hmm.csv'))
 
     log.info('\nResults RF: ')
     log.info(dfr_rf.mean())

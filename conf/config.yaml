@@ -3,9 +3,13 @@ multi_gpu: false
 gpu_ids: [0, 1, 2]
 num_workers: 10  # number of CPU cores for parallel tasks
 pretrained_model_root: /data/UKBB/gert/ssl/logging/cv_output/0
-torch_cache: /data/UKBB/gert/.cache  # torch.hub cache location
-torch_path:  # for offline usage (eg BMRC), set this to the location of the ssl-wearables repo. Leave empty otherwise.
-ukb_output_root: outputs  # location where to save prediction outputs
+
+# location where to save prediction outputs
+ukb_output_path: outputs
+
+# For offline usage only (eg BMRC): set this to the location of the OxWearables/ssl-wearables repository.
+# Leave empty otherwise (will auto download repo from Github when empty).
+ssl_repo_path:
 
 sslnet:
   weights: weights/state_dict.pt
