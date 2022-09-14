@@ -102,7 +102,8 @@ class NormalDataset(Dataset):
         """
 
         self.X = torch.from_numpy(X)
-        self.y = y
+        if y:
+            self.y = torch.tensor(y)
         self.isLabel = is_labelled
         self.pid = pid
         log.info(name + " set sample count : " + str(len(self.X)))

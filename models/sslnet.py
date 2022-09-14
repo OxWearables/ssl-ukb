@@ -61,7 +61,6 @@ def predict(model, data_loader, my_device, output_logits=False):
     :rtype: (np.ndarray, np.ndarray, np.ndarray)
     """
 
-    from torch.autograd import Variable
     from tqdm import tqdm
 
     predictions_list = []
@@ -71,8 +70,7 @@ def predict(model, data_loader, my_device, output_logits=False):
     if my_device == 'cpu':
         torch.set_flush_denormal(True)
     for i, (my_X, my_Y, my_PID) in enumerate(tqdm(data_loader)):
-        with torch.no_grad():
-            my_X, my_Y = Variable(my_X), Variable(my_Y)
+        with torch.inference_mode():
             my_X = my_X.to(my_device, dtype=torch.float)
             logits = model(my_X)
             true_list.append(my_Y)
