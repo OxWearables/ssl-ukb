@@ -25,7 +25,7 @@ import numpy as np
 from pathlib import Path
 from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
-from utils.dataloader import NormalDataset
+from utils.data import NormalDataset
 from datetime import datetime
 
 from models.hmm import HMM

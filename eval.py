@@ -29,7 +29,7 @@ import utils.utils as utils
 import models.sslnet as ssl
 import models.rf as rf
 from models.hmm import HMM
-from utils.dataloader import NormalDataset, load_data
+from utils.data import NormalDataset, load_data
 
 log = utils.get_logger()
 
