@@ -2,18 +2,90 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+from tqdm import tqdm
+
 import utils.utils as utils
 
 log = utils.get_logger()
 
 
-def get_sslnet(device, cfg, eval=True, load_weights=True, pretrained=False):
+class EarlyStopping:
+    """Early stops the training if validation loss
+    doesn't improve after a given patience."""
+
+    def __init__(
+        self,
+        patience=7,
+        verbose=False,
+        delta=0,
+        path="checkpoint.pt",
+        trace_func=print,
+    ):
+        """
+        Args:
+            patience (int): How long to wait after last time v
+                            alidation loss improved.
+                            Default: 7
+            verbose (bool): If True, prints a message for each
+                            validation loss improvement.
+                            Default: False
+            delta (float): Minimum change in the monitored quantity
+                            to qualify as an improvement.
+                            Default: 0
+            path (str): Path for the checkpoint to be saved to.
+                            Default: 'checkpoint.pt'
+            trace_func (function): trace print function.
+                            Default: print
+        """
+        self.patience = patience
+        self.verbose = verbose
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self.val_loss_min = np.Inf
+        self.delta = delta
+        self.path = path
+        self.trace_func = trace_func
+
+    def __call__(self, val_loss, model):
+
+        score = -val_loss
+
+        if self.best_score is None:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+        elif score < self.best_score + self.delta:
+            self.counter += 1
+            self.trace_func(
+                f"EarlyStopping counter: {self.counter}/{self.patience}"
+            )
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+            self.counter = 0
+
+    def save_checkpoint(self, val_loss, model):
+        """Saves model when validation loss decrease."""
+        if self.verbose:
+            msg = "Validation loss decreased"
+            msg = msg + f" ({self.val_loss_min:.6f} --> {val_loss:.6f}). "
+            msg = msg + "Saving model ..."
+            self.trace_func(msg)
+        if hasattr(model, 'module'):
+            torch.save(model.module.state_dict(), self.path)
+        else:
+            torch.save(model.state_dict(), self.path)
+        self.val_loss_min = val_loss
+
+
+def get_sslnet(device, cfg, load_weights=True, pretrained=False):
     """
     Load and return the SSLNet.
 
     :param str device: pytorch map location
     :param cfg: config object
-    :param bool eval: Put the model in evaluation mode.
     :param bool load_weights: Load pretrained (fine-tuned) weights.
     :param bool pretrained: Initialise the model with self-supervised pretrained weights.
     :return: pytorch SSLNet model
@@ -35,9 +107,6 @@ def get_sslnet(device, cfg, eval=True, load_weights=True, pretrained=False):
         model_dict = torch.load(cfg.sslnet.weights, map_location=device)
         sslnet.load_state_dict(model_dict)
         log.info('Loaded SSLNet weights from %s', cfg.sslnet.weights)
-
-    if eval:
-        sslnet.eval()
 
     sslnet.to(device)
 
@@ -68,17 +137,17 @@ def predict(model, data_loader, my_device, output_logits=False):
     model.eval()
     if my_device == 'cpu':
         torch.set_flush_denormal(True)
-    for i, (my_X, my_Y, my_PID) in enumerate(tqdm(data_loader)):
+    for i, (x, y, pid) in enumerate(tqdm(data_loader)):
         with torch.inference_mode():
-            my_X = my_X.to(my_device, dtype=torch.float)
-            logits = model(my_X)
-            true_list.append(my_Y)
+            x = x.to(my_device, dtype=torch.float)
+            logits = model(x)
+            true_list.append(y)
             if output_logits:
                 predictions_list.append(logits.cpu())
             else:
                 pred_y = torch.argmax(logits, dim=1)
                 predictions_list.append(pred_y.cpu())
-            pid_list.extend(my_PID)
+            pid_list.extend(pid)
     true_list = torch.cat(true_list)
     predictions_list = torch.cat(predictions_list)
 
@@ -94,3 +163,101 @@ def predict(model, data_loader, my_device, output_logits=False):
             torch.flatten(predictions_list).numpy(),
             np.array(pid_list),
         )
+
+
+def train(model, train_loader, val_loader, cfg, my_device, weights):
+    """
+    Iterate over the training dataloader and train a pytorch model.
+    After each epoch, validate model and early stop when validation loss function bottoms out.
+
+    Trained model weights will be saved to disk (cfg.sslnet.weights).
+
+    :param nn.Module model: pytorch model
+    :param train_loader: training data loader
+    :param val_loader: validation data loader
+    :param cfg: config object.
+    :param str my_device: pytorch map device.
+    :param weights: training class weights
+    """
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=cfg.sslnet.learning_rate, amsgrad=True
+    )
+
+    if cfg.sslnet.weighted_loss_fn:
+        weights = torch.FloatTensor(weights).to(my_device)
+        loss_fn = nn.CrossEntropyLoss(weight=weights)
+    else:
+        loss_fn = nn.CrossEntropyLoss()
+
+    early_stopping = EarlyStopping(
+        patience=cfg.sslnet.patience, path=cfg.sslnet.weights, verbose=True, trace_func=log.info
+    )
+
+    for epoch in range(cfg.sslnet.num_epoch):
+        model.train()
+        train_losses = []
+        train_acces = []
+        for i, (x, y, _) in enumerate(tqdm(train_loader)):
+            x.requires_grad_(True)
+            x = x.to(my_device, dtype=torch.float)
+            true_y = y.to(my_device, dtype=torch.long)
+
+            optimizer.zero_grad()
+
+            logits = model(x)
+            loss = loss_fn(logits, true_y)
+            loss.backward()
+            optimizer.step()
+
+            pred_y = torch.argmax(logits, dim=1)
+            train_acc = torch.sum(pred_y == true_y)
+            train_acc = train_acc / (pred_y.size()[0])
+
+            train_losses.append(loss.cpu().detach())
+            train_acces.append(train_acc.cpu().detach())
+
+        val_loss, val_acc = _validate_model(model, val_loader, my_device, loss_fn)
+
+        epoch_len = len(str(cfg.sslnet.num_epoch))
+        print_msg = (
+            f"[{epoch:>{epoch_len}}/{cfg.sslnet.num_epoch:>{epoch_len}}] | "
+            + f"train_loss: {np.mean(train_losses):.3f} | "
+            + f"train_acc: {np.mean(train_acces):.3f} | "
+            + f"val_loss: {val_loss:.3f} | "
+            + f"val_acc: {val_acc:.2f}"
+        )
+
+        early_stopping(val_loss, model)
+        log.info(print_msg)
+
+        if early_stopping.early_stop:
+            log.info('Early stopping')
+            log.info('SSLNet weights saved to %s', cfg.sslnet.weights)
+            break
+
+    return model
+
+
+def _validate_model(model, val_loader, my_device, loss_fn):
+    """ Iterate over a validation data loader and return mean model loss and accuracy. """
+    model.eval()
+    losses = []
+    acces = []
+    for i, (x, y, _) in enumerate(val_loader):
+        with torch.inference_mode():
+            x = x.to(my_device, dtype=torch.float)
+            true_y = y.to(my_device, dtype=torch.long)
+
+            logits = model(x)
+            loss = loss_fn(logits, true_y)
+
+            pred_y = torch.argmax(logits, dim=1)
+
+            val_acc = torch.sum(pred_y == true_y)
+            val_acc = val_acc / (list(pred_y.size())[0])
+
+            losses.append(loss.cpu().detach())
+            acces.append(val_acc.cpu().detach())
+    losses = np.array(losses)
+    acces = np.array(acces)
+    return np.mean(losses), np.mean(acces)

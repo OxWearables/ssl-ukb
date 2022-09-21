@@ -148,8 +148,8 @@ if __name__ == '__main__':
         num_workers=0,
     )
 
-    # load pretrained SSL model and weights
-    sslnet = ssl.get_sslnet(my_device, cfg, eval=True, load_weights=True)
+    # load pretrained SSL model
+    sslnet = ssl.get_sslnet(my_device, cfg, load_weights=True)
 
     # load pretrained HMM
     hmm_ssl = HMM(sslnet.classes, uniform_prior=cfg.hmm.uniform_prior)

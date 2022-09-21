@@ -43,13 +43,11 @@ if __name__ == '__main__':
     GPU = cfg.gpu
     if GPU != -1:
         my_device = "cuda:" + str(GPU)
-    elif cfg.multi_gpu is True:
-        my_device = "cuda:0"  # use the first GPU as master
     else:
         my_device = "cpu"
 
-    # load pretrained SSL model and weights
-    sslnet = ssl.get_sslnet(my_device, cfg, eval=True, load_weights=True)
+    # load pretrained SSL model
+    sslnet = ssl.get_sslnet(my_device, cfg, load_weights=True)
 
     # load pretrained RF
     rfmodel: BalancedRandomForestClassifier = joblib.load(cfg.rf.path)

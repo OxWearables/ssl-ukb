@@ -1,20 +1,21 @@
 """
-Train 2 HMM models.
+Train the following models:
 
-RF-HMM: Trained with out-of-bag predictions of a RF with handcrafted features.
-        Will extract features and train the RF from scratch, and joblib dump the trained RF model for later use.
+Random Forest (RF): Extract handcrafted features and train an RF. Joblib dump the whole RF for later use.
+RF-HMM: Hidden Markov Model (HMM) trained with out-of-bag predictions of the RF.
 
-SSL-HMM: Trained on the predictions of the validation fold of a pretrained SSLNet.
+Self-Supervised Net (SSLNet): The pretrained self-supervised model, fine-tuned on the training data.
+SSL-HMM: HMM trained on the predictions of the validation fold of the fine-tuned SSLNet.
 
-Output:
-A Numpy archive (.npz) with the HMM model matrices (see models.HMM class)
+Output (saved to disk, see config for paths):
+- A joblib dump pickle with the RF (cfg.rf.path)
+- The fine-tuned SSLNet weights (cfg.sslnet.weights)
+- A Numpy archive (.npz) with the RF-HMM and SSL-HMM model matrices (cfg.hmm.weights)
 """
 
-import os
 import joblib
 import torch
 import numpy as np
-import pandas as pd
 
 from torch.utils.data import DataLoader
 from scipy.special import softmax
@@ -25,7 +26,7 @@ import utils.utils as utils
 import models.sslnet as ssl
 import models.rf as rf
 from models.hmm import HMM
-from utils.data import NormalDataset, load_data
+from utils.data import NormalDataset, load_data, get_inverse_class_weights
 
 log = utils.get_logger()
 
@@ -39,8 +40,6 @@ if __name__ == "__main__":
     GPU = cfg.gpu
     if GPU != -1:
         my_device = "cuda:" + str(GPU)
-    elif cfg.multi_gpu is True:
-        my_device = "cuda:0"  # use the first GPU as master
     else:
         my_device = "cpu"
 
@@ -54,7 +53,7 @@ if __name__ == "__main__":
         le
     ) = load_data(cfg)
 
-    # train RF
+    # RF training
     rfmodel = rf.get_rf(num_workers=cfg.num_workers)
 
     log.info('Extract RF features')
@@ -65,11 +64,23 @@ if __name__ == "__main__":
     joblib.dump(rfmodel, cfg.rf.path)
     log.info('RF saved to %s', cfg.rf.path)
 
-    # load pretrained SSL model and weights
-    sslnet = ssl.get_sslnet(my_device, cfg, eval=True, load_weights=True)
+    # SSLNet training
+    # load SSL model with self-supervised pre-trained weights
+    sslnet = ssl.get_sslnet(my_device, cfg, load_weights=False, pretrained=True)
 
-    # construct dataloader for SSL inference
-    val_dataset = NormalDataset(x_val, y_val, pid=group_val, name="val", is_labelled=True)
+    if cfg.multi_gpu:
+        sslnet = torch.nn.DataParallel(sslnet, output_device=my_device, device_ids=cfg.gpu_ids)
+
+    # construct train and validation dataloaders
+    train_dataset = NormalDataset(x_train, y_train, name="train", is_labelled=True, transform=cfg.sslnet.augmentation)
+    val_dataset = NormalDataset(x_val, y_val, name="val", is_labelled=True)
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=1000,
+        shuffle=True,
+        num_workers=2,
+    )
 
     val_loader = DataLoader(
         val_dataset,
@@ -77,6 +88,17 @@ if __name__ == "__main__":
         shuffle=False,
         num_workers=0,
     )
+
+    log.info('SSLNet training')
+    ssl.train(sslnet, train_loader, val_loader, cfg, my_device, get_inverse_class_weights(y_train))
+
+    # load trained SSLNet weights (best weights prior to early-stopping)
+    model_dict = torch.load(cfg.sslnet.weights, map_location=my_device)
+
+    if cfg.multi_gpu:
+        sslnet.module.load_state_dict(model_dict)
+    else:
+        sslnet.load_state_dict(model_dict)
 
     # HMM training (SSL)
     log.info('Training SSL-HMM')
