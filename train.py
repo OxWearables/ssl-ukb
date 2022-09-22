@@ -49,8 +49,7 @@ if __name__ == "__main__":
         x_train_rf, y_train_rf, group_train_rf, time_train_rf,
         x_val, y_val, group_val, time_val,
         x_test, y_test, group_test, time_test,
-        x_test_rf, y_test_rf, group_test_rf, time_test_rf,
-        le
+        x_test_rf, y_test_rf, group_test_rf, time_test_rf
     ) = load_data(cfg)
 
     # RF training
@@ -110,20 +109,18 @@ if __name__ == "__main__":
     # softmax logits
     y_val_pred_sf = softmax(y_val_pred, axis=1)
 
-    hmm_ssl = HMM(le.transform(le.classes_), uniform_prior=cfg.hmm.uniform_prior)
+    hmm_ssl = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
     hmm_ssl.train(y_val_pred_sf, y_val)
     hmm_ssl.save(cfg.hmm.weights_ssl)
 
     log.info(hmm_ssl)
-    log.info(le.classes_)
     log.info('SSL-HMM saved to %s', cfg.hmm.weights_ssl)
 
     # HMM training (RF)
     log.info('Training RF-HMM')
-    hmm_rf = HMM(rfmodel.classes_, uniform_prior=cfg.hmm.uniform_prior)
+    hmm_rf = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
     hmm_rf.train(rfmodel.oob_decision_function_, y_train_rf)
     hmm_rf.save(cfg.hmm.weights_rf)
 
     log.info(hmm_rf)
-    log.info(rfmodel.classes_)
     log.info('RF-HMM saved to %s', cfg.hmm.weights_rf)

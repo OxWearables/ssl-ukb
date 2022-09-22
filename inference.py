@@ -114,8 +114,6 @@ if __name__ == '__main__':
     GPU = cfg.gpu
     if GPU != -1:
         my_device = "cuda:" + str(GPU)
-    elif cfg.multi_gpu is True:
-        my_device = "cuda:0"  # use the first GPU as master
     else:
         my_device = "cpu"
 
@@ -152,7 +150,7 @@ if __name__ == '__main__':
     sslnet = ssl.get_sslnet(my_device, cfg, load_weights=True)
 
     # load pretrained HMM
-    hmm_ssl = HMM(sslnet.classes, uniform_prior=cfg.hmm.uniform_prior)
+    hmm_ssl = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
     hmm_ssl.load(cfg.hmm.weights_ssl)
 
     # do inference
@@ -167,11 +165,11 @@ if __name__ == '__main__':
     y_pred_hmm = hmm_ssl.viterbi(y_pred)
 
     # construct dataframe
-    df = utils.raw_to_df(X, y_prob, T, sslnet.labels, label_proba=True, reindex=False)
+    df = utils.raw_to_df(X, y_prob, T, utils.le.classes_, label_proba=True, reindex=False)
 
-    dtype = pd.CategoricalDtype(categories=sslnet.labels)
-    df['label'] = pd.Series(sslnet.labels[y_pred], index=df.index, dtype=dtype)
-    df['label_hmm'] = pd.Series(sslnet.labels[y_pred_hmm], index=df.index, dtype=dtype)
+    dtype = pd.CategoricalDtype(categories=utils.le.classes_)
+    df['label'] = pd.Series(utils.le.inverse_transform(y_pred), index=df.index, dtype=dtype)
+    df['label_hmm'] = pd.Series(utils.le.inverse_transform(y_pred_hmm), index=df.index, dtype=dtype)
 
     # reindex for missing values
     newindex = pd.date_range(data_start, data_end, freq='{s}S'.format(s=WINDOW_SEC))

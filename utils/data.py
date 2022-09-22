@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 
 from torch.utils.data.dataset import Dataset
-from sklearn import preprocessing
 from transforms3d.axangles import axangle2mat
 from torchvision import transforms
 
@@ -120,10 +119,7 @@ def load_data(cfg):
     log.info('Label distribution: ')
     log.info(pd.Series(Y).value_counts())
 
-    le = preprocessing.LabelEncoder()
-    le.fit(Y)
-    y = le.transform(Y)
-    labels = le.classes_
+    y = utils.le.transform(Y)
 
     group_train = np.load(os.path.join(cfg.pretrained_model_root, 'group_train.npy'))
     group_train_rf = np.load(os.path.join(cfg.pretrained_model_root, 'rf_group_train.npy'))
@@ -177,8 +173,7 @@ def load_data(cfg):
         x_train_rf, y_train_rf, group_train_rf, time_train_rf,
         x_val, y_val, group_val, time_val,
         x_test, y_test, group_test, time_test,
-        x_test_rf, y_test_rf, group_test_rf, time_test_rf,
-        le
+        x_test_rf, y_test_rf, group_test_rf, time_test_rf
     )
 
 

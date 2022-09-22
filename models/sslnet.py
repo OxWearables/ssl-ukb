@@ -110,9 +110,6 @@ def get_sslnet(device, cfg, load_weights=True, pretrained=False):
 
     sslnet.to(device)
 
-    sslnet.labels = utils.labels
-    sslnet.classes = utils.classes
-
     return sslnet
 
 

@@ -58,15 +58,16 @@ if __name__ == '__main__':
         x_train_rf, y_train_rf, group_train_rf, time_train_rf,
         x_val, y_val, group_val, time_val,
         x_test, y_test, group_test, time_test,
-        x_test_rf, y_test_rf, group_test_rf, time_test_rf,
-        le
+        x_test_rf, y_test_rf, group_test_rf, time_test_rf
     ) = load_data(cfg)
 
+    le = utils.le  # label encoder
+
     # load pretrained HMM
-    hmm_ssl = HMM(le.transform(le.classes_), uniform_prior=cfg.hmm.uniform_prior)
+    hmm_ssl = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
     hmm_ssl.load(cfg.hmm.weights_ssl)
 
-    hmm_rf = HMM(rfmodel.classes_, uniform_prior=cfg.hmm.uniform_prior)
+    hmm_rf = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
     hmm_rf.load(cfg.hmm.weights_rf)
 
     # SSL data loader
@@ -108,8 +109,8 @@ if __name__ == '__main__':
         result = utils.classification_scores(subject_true, subject_pred)
         result_hmm = utils.classification_scores(subject_true, subject_pred_hmm)
 
-        cmatrix = metrics.confusion_matrix(subject_true, subject_pred, labels=[0, 1, 2, 3])
-        cmatrix_hmm = metrics.confusion_matrix(subject_true, subject_pred_hmm, labels=[0, 1, 2, 3])
+        cmatrix = metrics.confusion_matrix(subject_true, subject_pred, labels=utils.classes)
+        cmatrix_hmm = metrics.confusion_matrix(subject_true, subject_pred_hmm, labels=utils.classes)
 
         # plot subject predictions
         df_true = utils.raw_to_df(x_test[subject_filter], subject_true, time_test[subject_filter], le.classes_)

@@ -68,7 +68,6 @@ def getActivitySummary(  # noqa: C901
     :rtype: void
     """
     data = data.copy()
-    labels = ['light', 'moderate-vigorous', 'sedentary', 'sleep']
 
     # utils.toScreen("=== Summarizing ===")
 

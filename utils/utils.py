@@ -1,9 +1,14 @@
 import numpy as np
 import pandas as pd
 
-# Capture24 class labels
-labels = np.array(['light', 'moderate-vigorous', 'sedentary', 'sleep'])
-classes = np.array([0, 1, 2, 3])
+from sklearn.preprocessing import LabelEncoder
+
+# unified label encoder for the package
+# hardcoded Capture-24 class labels for reproducibility and consistency
+labels = ['light', 'moderate-vigorous', 'sedentary', 'sleep']
+le = LabelEncoder()
+le.fit(labels)
+classes = le.transform(le.classes_)
 
 
 def resize(x, length, axis=1):
