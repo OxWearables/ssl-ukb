@@ -54,11 +54,9 @@ if __name__ == '__main__':
 
     # load raw data
     (
-        x_train, y_train, group_train, time_train,
-        x_train_rf, y_train_rf, group_train_rf, time_train_rf,
-        x_val, y_val, group_val, time_val,
+        _, _, _, _,
+        _, _, _, _,
         x_test, y_test, group_test, time_test,
-        x_test_rf, y_test_rf, group_test_rf, time_test_rf
     ) = load_data(cfg)
 
     le = utils.le  # label encoder
@@ -87,7 +85,7 @@ if __name__ == '__main__':
     )
 
     log.info('Extract RF features')
-    x_feats = rf.extract_features(x_test_rf, sample_rate=cfg.data.sample_rate, num_workers=cfg.num_workers)
+    x_feats = rf.extract_features(x_test, sample_rate=cfg.data.sample_rate, num_workers=cfg.num_workers)
 
     log.info('Get RF test predictions')
     y_test_pred_rf = rfmodel.predict(x_feats)
@@ -147,7 +145,7 @@ if __name__ == '__main__':
 
     # RF results
     results_rf, results_hmm_rf, cmatrix_rf, cmatrix_hmm_rf = zip(*Parallel(n_jobs=cfg.num_workers)(
-        delayed(score)('RF', current_pid, pid_test, y_test_rf, y_test_pred_rf, y_test_pred_hmm_rf) for current_pid in
+        delayed(score)('RF', current_pid, pid_test, y_test, y_test_pred_rf, y_test_pred_hmm_rf) for current_pid in
         tqdm(my_pids)
     ))
 

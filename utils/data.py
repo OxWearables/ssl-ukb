@@ -3,7 +3,6 @@ Data loading and augmentation utilities
 """
 
 import torch
-import os
 import random
 import numpy as np
 import pandas as pd
@@ -11,6 +10,7 @@ import pandas as pd
 from torch.utils.data.dataset import Dataset
 from transforms3d.axangles import axangle2mat
 from torchvision import transforms
+from sklearn.model_selection import GroupShuffleSplit
 
 import utils.utils as utils
 
@@ -70,7 +70,11 @@ class NormalDataset(Dataset):
                  pid=None,
                  name="",
                  is_labelled=False,
-                 transform=False):
+                 transform=False,
+                 transpose_channels_first=True):
+
+        if transpose_channels_first:
+            X = np.transpose(X, (0, 2, 1))
 
         self.X = torch.from_numpy(X)
         if y is not None:
@@ -111,69 +115,63 @@ class NormalDataset(Dataset):
 def load_data(cfg):
     X = np.load(cfg.data.X_path, mmap_mode='r')
     Y = np.load(cfg.data.Y_path)
-    P = np.load(cfg.data.PID_path)  # participant IDs
+    pid = np.load(cfg.data.PID_path)  # participant IDs
     time = np.load(cfg.data.time_path)
 
     log.info('X shape: %s', X.shape)
     log.info('Y shape: %s', Y.shape)
-    log.info('Label distribution: ')
-    log.info(pd.Series(Y).value_counts())
+    log.info('Label distribution:\n%s', pd.Series(Y).value_counts())
 
     y = utils.le.transform(Y)
-
-    group_train = np.load(os.path.join(cfg.pretrained_model_root, 'group_train.npy'))
-    group_train_rf = np.load(os.path.join(cfg.pretrained_model_root, 'rf_group_train.npy'))
-    group_val = np.load(os.path.join(cfg.pretrained_model_root, 'group_val.npy'))
-    group_test = np.load(os.path.join(cfg.pretrained_model_root, 'group_test.npy'))
-    group_test_rf = np.load(os.path.join(cfg.pretrained_model_root, 'rf_group_test.npy'))
-
-    train_idx = np.isin(P, np.unique(group_train)).nonzero()[0]
-    train_idx_rf = np.isin(P, np.unique(group_train_rf)).nonzero()[0]
-    val_idx = np.isin(P, np.unique(group_val)).nonzero()[0]
-    test_idx = np.isin(P, np.unique(group_test)).nonzero()[0]
-    test_idx_rf = np.isin(P, np.unique(group_test_rf)).nonzero()[0]
-
-    # p_idx = {}
-    # for person in np.unique(P):
-    #     p_idx[person] = np.isin(P, person).nonzero()[0]
 
     input_size = cfg.data.input_size
     if X.shape[1] == input_size:
         log.info("No need to downsample")
-        x_downsampled = X
     else:
-        x_downsampled = utils.resize(X, input_size)
+        X = utils.resize(X, input_size)
 
-    x_downsampled = x_downsampled.astype(
+    X = X.astype(
         "f4"
     )  # PyTorch defaults to float32
-    # channels first: (N,M,3) -> (N,3,M). PyTorch uses channel first format
-    x_transposed = np.transpose(x_downsampled, (0, 2, 1))
 
-    x_train = x_transposed[train_idx]
-    x_train_rf = x_downsampled[train_idx_rf]
+    # generate train/test splits
+    folds = GroupShuffleSplit(
+        1, test_size=0.2, random_state=42
+    ).split(X, y, groups=pid)
+    train_idx, test_idx = next(folds)
+
+    x_test = X[test_idx]
+    y_test = y[test_idx]
+    time_test = time[test_idx]
+    group_test = pid[test_idx]
+
+    # further split train into train/val
+    X = X[train_idx]
+    y = y[train_idx]
+    pid = pid[train_idx]
+    time = time[train_idx]
+
+    folds = GroupShuffleSplit(
+        1, test_size=0.125, random_state=41
+    ).split(X, y, groups=pid)
+    train_idx, val_idx = next(folds)
+
+    x_train = X[train_idx]
+    x_val = X[val_idx]
+
     y_train = y[train_idx]
-    y_train_rf = y[train_idx_rf]
-    time_train = time[train_idx]
-    time_train_rf = time[train_idx_rf]
-
-    x_val = x_transposed[val_idx]
     y_val = y[val_idx]
+
+    time_train = time[train_idx]
     time_val = time[val_idx]
 
-    x_test = x_transposed[test_idx]
-    x_test_rf = x_downsampled[test_idx_rf]
-    y_test = y[test_idx]
-    y_test_rf = y[test_idx_rf]
-    time_test = time[test_idx]
-    time_test_rf = time[test_idx_rf]
+    group_train = pid[train_idx]
+    group_val = pid[val_idx]
 
     return (
         x_train, y_train, group_train, time_train,
-        x_train_rf, y_train_rf, group_train_rf, time_train_rf,
         x_val, y_val, group_val, time_val,
         x_test, y_test, group_test, time_test,
-        x_test_rf, y_test_rf, group_test_rf, time_test_rf
     )
 
 

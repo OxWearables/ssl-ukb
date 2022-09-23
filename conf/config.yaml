@@ -2,7 +2,6 @@ gpu: -1
 multi_gpu: false
 gpu_ids: [0, 1, 2]
 num_workers: 10  # number of CPU cores for parallel tasks
-pretrained_model_root: /data/UKBB/gert/ssl/logging/cv_output/0
 
 # location where to save prediction outputs
 ukb_output_path: outputs

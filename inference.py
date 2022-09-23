@@ -136,8 +136,7 @@ if __name__ == '__main__':
     X, T = df_to_windows(data)
     del data  # free up memory
 
-    # transpose for pytorch channel first format
-    dataset = NormalDataset(np.transpose(X, (0, 2, 1)), name=pid)
+    dataset = NormalDataset(X, name=pid)
 
     dataloader = DataLoader(
         dataset,

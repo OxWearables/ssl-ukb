@@ -46,11 +46,12 @@ if __name__ == "__main__":
     # load raw data
     (
         x_train, y_train, group_train, time_train,
-        x_train_rf, y_train_rf, group_train_rf, time_train_rf,
         x_val, y_val, group_val, time_val,
-        x_test, y_test, group_test, time_test,
-        x_test_rf, y_test_rf, group_test_rf, time_test_rf
+        _, _, _, _,
     ) = load_data(cfg)
+
+    x_train_rf = np.concatenate((x_train, x_val))
+    y_train_rf = np.concatenate((y_train, y_val))
 
     # RF training
     rfmodel = rf.get_rf(num_workers=cfg.num_workers)
