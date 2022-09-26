@@ -50,27 +50,37 @@ if __name__ == "__main__":
         _, _, _, _,
     ) = load_data(cfg)
 
-    x_train_rf = np.concatenate((x_train, x_val))
-    y_train_rf = np.concatenate((y_train, y_val))
-
-    # RF training
-    rfmodel = rf.get_rf(num_workers=cfg.num_workers)
-
-    log.info('Extract RF features')
-    x_feats = rf.extract_features(x_train_rf, sample_rate=cfg.data.sample_rate, num_workers=cfg.num_workers)
-
-    log.info('Training RF')
-    rfmodel.fit(x_feats, y_train_rf)
-    joblib.dump(rfmodel, cfg.rf.path)
-    log.info('RF saved to %s', cfg.rf.path)
-
-    # SSLNet training
     # load SSL model with self-supervised pre-trained weights
     sslnet = ssl.get_sslnet(my_device, cfg, load_weights=False, pretrained=True)
 
     if cfg.multi_gpu:
         sslnet = torch.nn.DataParallel(sslnet, output_device=my_device, device_ids=cfg.gpu_ids)
 
+    if cfg.rf.enabled:
+        x_train_rf = np.concatenate((x_train, x_val))
+        y_train_rf = np.concatenate((y_train, y_val))
+
+        # RF training
+        rfmodel = rf.get_rf(num_workers=cfg.num_workers)
+
+        log.info('Extract RF features')
+        x_feats = rf.extract_features(x_train_rf, sample_rate=cfg.data.sample_rate, num_workers=cfg.num_workers)
+
+        log.info('Training RF')
+        rfmodel.fit(x_feats, y_train_rf)
+        joblib.dump(rfmodel, cfg.rf.path)
+        log.info('RF saved to %s', cfg.rf.path)
+
+        # HMM training (RF)
+        log.info('Training RF-HMM')
+        hmm_rf = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
+        hmm_rf.train(rfmodel.oob_decision_function_, y_train_rf)
+        hmm_rf.save(cfg.hmm.weights_rf)
+
+        log.info(hmm_rf)
+        log.info('RF-HMM saved to %s', cfg.hmm.weights_rf)
+
+    # SSLNet training
     # construct train and validation dataloaders
     train_dataset = NormalDataset(x_train, y_train, name="train", is_labelled=True, transform=cfg.sslnet.augmentation)
     val_dataset = NormalDataset(x_val, y_val, name="val", is_labelled=True)
@@ -116,12 +126,3 @@ if __name__ == "__main__":
 
     log.info(hmm_ssl)
     log.info('SSL-HMM saved to %s', cfg.hmm.weights_ssl)
-
-    # HMM training (RF)
-    log.info('Training RF-HMM')
-    hmm_rf = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
-    hmm_rf.train(rfmodel.oob_decision_function_, y_train_rf)
-    hmm_rf.save(cfg.hmm.weights_rf)
-
-    log.info(hmm_rf)
-    log.info('RF-HMM saved to %s', cfg.hmm.weights_rf)

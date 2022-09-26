@@ -18,13 +18,14 @@ sslnet:
   patience: 10
   num_epoch: 100
 
+rf:
+  enabled: true
+  path: weights/rf.joblib
+
 hmm:
   weights_ssl: weights/hmm_ssl.npz
   weights_rf: weights/hmm_rf.npz
   uniform_prior: true
-
-rf:
-  path: weights/rf.joblib
 
 data:
   name: 'capture24'

@@ -48,9 +48,15 @@ if __name__ == '__main__':
 
     # load pretrained SSL model
     sslnet = ssl.get_sslnet(my_device, cfg, load_weights=True)
+    hmm_ssl = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
+    hmm_ssl.load(cfg.hmm.weights_ssl)
 
-    # load pretrained RF
-    rfmodel: BalancedRandomForestClassifier = joblib.load(cfg.rf.path)
+    if cfg.rf.enabled:
+        # load pretrained RF
+        rfmodel: BalancedRandomForestClassifier = joblib.load(cfg.rf.path)
+        log.info('Loaded RF from %s', cfg.rf.path)
+        hmm_rf = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
+        hmm_rf.load(cfg.hmm.weights_rf)
 
     # load raw data
     (
@@ -60,13 +66,6 @@ if __name__ == '__main__':
     ) = load_data(cfg)
 
     le = utils.le  # label encoder
-
-    # load pretrained HMM
-    hmm_ssl = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
-    hmm_ssl.load(cfg.hmm.weights_ssl)
-
-    hmm_rf = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
-    hmm_rf.load(cfg.hmm.weights_rf)
 
     # SSL data loader
     test_dataset = NormalDataset(x_test, y_test, pid=group_test, name="test", is_labelled=True)
@@ -83,17 +82,15 @@ if __name__ == '__main__':
     y_test, y_test_pred, pid_test = ssl.predict(
         sslnet, test_loader, my_device, output_logits=False
     )
-
-    log.info('Extract RF features')
-    x_feats = rf.extract_features(x_test, sample_rate=cfg.data.sample_rate, num_workers=cfg.num_workers)
-
-    log.info('Get RF test predictions')
-    y_test_pred_rf = rfmodel.predict(x_feats)
-
-    # HMM smoothed predictions
-    log.info('Get HMM smoothed predictions')
     y_test_pred_hmm = hmm_ssl.viterbi(y_test_pred)
-    y_test_pred_hmm_rf = hmm_rf.viterbi(y_test_pred_rf)
+
+    if cfg.rf.enabled:
+        log.info('Extract RF features')
+        x_feats = rf.extract_features(x_test, sample_rate=cfg.data.sample_rate, num_workers=cfg.num_workers)
+
+        log.info('Get RF test predictions')
+        y_test_pred_rf = rfmodel.predict(x_feats)
+        y_test_pred_hmm_rf = hmm_rf.viterbi(y_test_pred_rf)
 
     # save performance scores and plots for every single subject
     my_pids = np.unique(pid_test)
@@ -133,8 +130,8 @@ if __name__ == '__main__':
     # Use joblib lazy parallel cause plotting is slow
     # SSL results
     results, results_hmm, cmatrix, cmatrix_hmm = zip(*Parallel(n_jobs=cfg.num_workers)(
-        delayed(score)('SSL', current_pid, pid_test, y_test, y_test_pred, y_test_pred_hmm) for current_pid in
-        tqdm(my_pids)
+        delayed(score)('SSL', current_pid, pid_test, y_test, y_test_pred, y_test_pred_hmm)
+        for current_pid in tqdm(my_pids)
     ))
 
     results = np.array(results)
@@ -143,25 +140,31 @@ if __name__ == '__main__':
     cmatrix = pd.DataFrame(np.sum(cmatrix, axis=0), index=le.classes_, columns=le.classes_)
     cmatrix_hmm = pd.DataFrame(np.sum(cmatrix_hmm, axis=0), index=le.classes_, columns=le.classes_)
 
-    # RF results
-    results_rf, results_hmm_rf, cmatrix_rf, cmatrix_hmm_rf = zip(*Parallel(n_jobs=cfg.num_workers)(
-        delayed(score)('RF', current_pid, pid_test, y_test, y_test_pred_rf, y_test_pred_hmm_rf) for current_pid in
-        tqdm(my_pids)
-    ))
+    if cfg.rf.enabled:
+        # RF results
+        results_rf, results_hmm_rf, cmatrix_rf, cmatrix_hmm_rf = zip(*Parallel(n_jobs=cfg.num_workers)(
+            delayed(score)('RF', current_pid, pid_test, y_test, y_test_pred_rf, y_test_pred_hmm_rf)
+            for current_pid in tqdm(my_pids)
+        ))
 
-    results_rf = np.array(results_rf)
-    results_hmm_rf = np.array(results_hmm_rf)
+        results_rf = np.array(results_rf)
+        results_hmm_rf = np.array(results_hmm_rf)
 
-    cmatrix_rf = pd.DataFrame(np.sum(cmatrix_rf, axis=0), index=le.classes_, columns=le.classes_)
-    cmatrix_hmm_rf = pd.DataFrame(np.sum(cmatrix_hmm_rf, axis=0), index=le.classes_, columns=le.classes_)
+        cmatrix_rf = pd.DataFrame(np.sum(cmatrix_rf, axis=0), index=le.classes_, columns=le.classes_)
+        cmatrix_hmm_rf = pd.DataFrame(np.sum(cmatrix_hmm_rf, axis=0), index=le.classes_, columns=le.classes_)
 
-    # confusion matrix plots
-    plots = {
-        'matrix_ssl': cmatrix,
-        'matrix_ssl_hmm': cmatrix_hmm,
-        'matrix_rf': cmatrix_rf,
-        'matrix_rf_hmm': cmatrix_hmm_rf,
-    }
+        # confusion matrix plots
+        plots = {
+            'matrix_ssl': cmatrix,
+            'matrix_ssl_hmm': cmatrix_hmm,
+            'matrix_rf': cmatrix_rf,
+            'matrix_rf_hmm': cmatrix_hmm_rf,
+        }
+    else:
+        plots = {
+            'matrix_ssl': cmatrix,
+            'matrix_ssl_hmm': cmatrix_hmm
+        }
 
     log.info('Class list: \n %s', le.classes_)
 
@@ -177,26 +180,21 @@ if __name__ == '__main__':
         plt.savefig('plots/{title}.png'.format(title=title), dpi=200)
         plt.close()
 
-        log.info('Confusion %s', title)
-        log.info(matrix)
-        log.info('')
+        log.info('Confusion %s\n%s\n', title, matrix)
 
     # save SSL reports
     dfr = utils.classification_report(results, os.path.join(cfg.ukb_output_path, 'report_ssl.csv'))
     dfr_hmm = utils.classification_report(results_hmm, os.path.join(cfg.ukb_output_path, 'report_ssl_hmm.csv'))
 
-    log.info('Results SSL: ')
-    log.info(dfr.mean())
+    log.info('Results SSL:\n%s', dfr.mean())
 
-    log.info('\nResults SSL-HMM: ')
-    log.info(dfr_hmm.mean())
+    log.info('Results SSL-HMM:\n%s\n', dfr_hmm.mean())
 
-    # save RF reports
-    dfr_rf = utils.classification_report(results_rf, os.path.join(cfg.ukb_output_path, 'report_rf.csv'))
-    dfr_hmm_rf = utils.classification_report(results_hmm_rf, os.path.join(cfg.ukb_output_path, 'report_rf_hmm.csv'))
+    if cfg.rf.enabled:
+        # save RF reports
+        dfr_rf = utils.classification_report(results_rf, os.path.join(cfg.ukb_output_path, 'report_rf.csv'))
+        dfr_hmm_rf = utils.classification_report(results_hmm_rf, os.path.join(cfg.ukb_output_path, 'report_rf_hmm.csv'))
 
-    log.info('\nResults RF: ')
-    log.info(dfr_rf.mean())
+        log.info('Results RF:\n%s', dfr_rf.mean())
 
-    log.info('\nResults RF-HMM: ')
-    log.info(dfr_hmm_rf.mean())
+        log.info('Results RF-HMM:\n%s', dfr_hmm_rf.mean())
