@@ -95,12 +95,13 @@ def get_sslnet(device, cfg, load_weights=True, pretrained=False):
     if cfg.ssl_repo_path:
         # use repo from disk (for offline use)
         log.info('Using local %s', cfg.ssl_repo_path)
-        sslnet: nn.Module = torch.hub.load(cfg.ssl_repo_path, 'harnet30', source='local', class_num=4,
-                                           pretrained=pretrained)
+        sslnet: nn.Module = torch.hub.load(cfg.ssl_repo_path, 'harnet30', source='local',
+                                           class_num=cfg.data.output_size, pretrained=pretrained)
     else:
         # download repo from github
         repo = 'OxWearables/ssl-wearables'
-        sslnet: nn.Module = torch.hub.load(repo, 'harnet30', trust_repo=True, class_num=4, pretrained=pretrained)
+        sslnet: nn.Module = torch.hub.load(repo, 'harnet30', trust_repo=True,
+                                           class_num=cfg.data.output_size, pretrained=pretrained)
 
     if load_weights:
         # load pretrained weights
