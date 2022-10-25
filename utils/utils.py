@@ -5,9 +5,10 @@ from sklearn.preprocessing import LabelEncoder
 
 # unified label encoder for the package
 # hardcoded Capture-24 class labels for reproducibility and consistency
-labels = ['light', 'moderate-vigorous', 'sedentary', 'sleep']
+#labels = ['light', 'moderate-vigorous', 'sedentary', 'sleep']
+class_labels = [0, 1]
 le = LabelEncoder()
-le.fit(labels)
+le.fit(class_labels)
 classes = le.transform(le.classes_)
 
 
@@ -66,22 +67,15 @@ def raw_to_df(data, labels, time, classes, label_proba=False, reindex=True, freq
 
     if label_proba:
         datadict = {
-            'time': time,
-            'acc': a_matrix,
-            classes[0]: labels[:, 0],
-            classes[1]: labels[:, 1],
-            classes[2]: labels[:, 2],
-            classes[3]: labels[:, 3]
-        }
+            **{'time': time, 'acc': a_matrix}, 
+            **{classes[i]: label_matrix[:, i] for i in range(len(class_labels))}
+            }
     else:
         datadict = {
-            'time': time,
-            'acc': a_matrix,
-            classes[0]: label_matrix[:, 0],
-            classes[1]: label_matrix[:, 1],
-            classes[2]: label_matrix[:, 2],
-            classes[3]: label_matrix[:, 3],
-        }
+            **{'time': time, 'acc': a_matrix}, 
+            **{classes[i]: label_matrix[:, i] for i in range(len(class_labels))}
+            }
+
     df = pd.DataFrame(datadict)
     df = df.set_index('time')
     # df = df.tz_localize('Europe/London', ambiguous='NaT', nonexistent='NaT')
@@ -115,19 +109,20 @@ def classification_scores(y_test, y_test_pred):
 
     cohen_kappa = metrics.cohen_kappa_score(y_test, y_test_pred)
     precision = metrics.precision_score(
-        y_test, y_test_pred, average="macro", zero_division=0
+        y_test, y_test_pred, average="binary", zero_division=1
     )
     recall = metrics.recall_score(
-        y_test, y_test_pred, average="macro", zero_division=0
+        y_test, y_test_pred, average="binary", zero_division=1
     )
     f1 = metrics.f1_score(
-        y_test, y_test_pred, average="macro", zero_division=0
+        y_test, y_test_pred, average="binary", zero_division=1
     )
+    accuracy = metrics.accuracy_score(y_test, y_test_pred)
 
-    return cohen_kappa, precision, recall, f1
+    return cohen_kappa, precision, recall, f1, accuracy
 
 
-def save_report(precision_list, recall_list, f1_list, cohen_kappa_list, report_path):
+def save_report(subjects, precision_list, recall_list, f1_list, cohen_kappa_list, accuracy_list, report_path):
     log = get_logger()
 
     data = {
@@ -135,25 +130,26 @@ def save_report(precision_list, recall_list, f1_list, cohen_kappa_list, report_p
         "recall": recall_list,
         "f1": f1_list,
         "kappa": cohen_kappa_list,
+        "accuracy": accuracy_list
     }
 
-    df = pd.DataFrame(data)
-    df.to_csv(report_path, index=False)
+    df = pd.DataFrame(data, index=subjects)
+    df.to_csv(report_path)
 
     log.info('Report saved to %s', report_path)
 
     return df
 
-
-def classification_report(results, report_path):
+def classification_report(results, subjects, report_path):
     # Collate metrics
     cohen_kappa_list = [result[0] for result in results]
     precision_list = [result[1] for result in results]
     recall_list = [result[2] for result in results]
     f1_list = [result[3] for result in results]
+    accuracy_list = [result[4] for result in results]
 
     return save_report(
-        precision_list, recall_list, f1_list, cohen_kappa_list, report_path
+        subjects, precision_list, recall_list, f1_list, cohen_kappa_list, accuracy_list, report_path
     )
 
 
@@ -220,3 +216,48 @@ def get_logger():
         log.addHandler(handler)
 
     return log
+
+def make_windows(data: pd.DataFrame, window_sec: int=None, sample_rate: int=None, step_threshold: int=None):
+    """ Split data into windows, and extract labels """
+
+    X_raw = []
+    T = []
+    accel_cols = ['x', 'y', 'z']
+    annotation_cols = data.columns.difference(accel_cols)
+
+    if len(annotation_cols) > 0:
+        Ys = []
+    
+    for _, w in data.resample(f"{window_sec}s", origin='start'):
+        if len(w) < window_sec * sample_rate:
+            continue
+        
+        if len(annotation_cols) == 1:
+            steps = w['annotation'].sum()
+            is_walk = int(steps >= step_threshold)
+
+            Ys.append({
+                'steps': steps,
+                'is_walk': is_walk
+            })
+        elif len(annotation_cols) > 1:
+            Ys.append({**{
+                'is_walk': w['annotation'].mode()
+                },
+                **{
+                    label: w[label].mode()
+                for label in annotation_cols.difference(['annotation'])}})
+        
+        xyz = w[accel_cols].to_numpy()
+
+        X_raw.append(xyz)
+        T.append(w.index[0])
+
+    X_raw = np.stack(X_raw)
+    T = np.stack(T)
+
+    if len(annotation_cols) > 0:
+        Ys = pd.DataFrame(Ys)
+        return X_raw, Ys, T
+
+    return X_raw, T

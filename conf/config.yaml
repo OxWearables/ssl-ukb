@@ -2,6 +2,7 @@ gpu: -1
 multi_gpu: false
 gpu_ids: [0, 1, 2]
 num_workers: 10  # number of CPU cores for parallel tasks
+num_folds: 5 # number of folds in the cross validation
 
 # location where to save prediction outputs
 ukb_output_path: outputs
@@ -11,7 +12,9 @@ ukb_output_path: outputs
 ssl_repo_path:
 
 sslnet:
-  weights: weights/state_dict.pt
+  enabled: true
+  weights: weights/state_dict_{}.pt
+  overwrite: false
   augmentation: true
   weighted_loss_fn: true
   learning_rate: 0.0001
@@ -20,22 +23,30 @@ sslnet:
 
 rf:
   enabled: true
-  path: weights/rf.joblib
+  path: weights/rf_{}.joblib
 
 hmm:
-  weights_ssl: weights/hmm_ssl.npz
-  weights_rf: weights/hmm_rf.npz
+  weights_ssl: weights/hmm_ssl_{}.npz
+  weights_rf: weights/hmm_rf_{}.npz
+  uniform_prior: true
+
+hmm_learn:
+  weights_ssl: weights/hmm_learn_ssl_{}.npz
+  weights_rf: weights/hmm_rf_{}.npz
   uniform_prior: true
 
 data:
-  name: 'capture24'
+  name: OxWalk
   output_size: 4
-  data_root: /data/UKBB/capture24_30hz_w30_o0
-  X_path: "${.data_root}/X.npy"
-  Y_path: "${.data_root}/Y_Walmsley.npy"
-  PID_path: "${.data_root}/pid.npy"
-  time_path: "${.data_root}/time.npy"
+  data_root: /data
+  raw_data: "${.data_root}/raw"
+  processed_data: "${.data_root}/processed"
+  X_path: "${.processed_data}/X.npy"
+  Y_path: "${.processed_data}/walk.npy"
+  PID_path: "${.processed_data}/pid.npy"
+  time_path: "${.processed_data}/T.npy"
   sample_rate: 30
-  input_size: 900
+  winsec: 10
+  step_threshold: 2
 
 

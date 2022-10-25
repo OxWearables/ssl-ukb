@@ -80,34 +80,34 @@ class EarlyStopping:
         self.val_loss_min = val_loss
 
 
-def get_sslnet(device, cfg, load_weights=True, pretrained=False):
+def get_sslnet(device, ssl_repo_path=None, ssl_weights_path=None, pretrained=False):
     """
     Load and return the SSLNet.
 
     :param str device: pytorch map location
-    :param cfg: config object
-    :param bool load_weights: Load pretrained (fine-tuned) weights.
+    :param ssl_repo_path: the path of downloaded resnet model
+    :param ssl_weights_path: the path of the pretrained (fine-tuned) weights.
     :param bool pretrained: Initialise the model with self-supervised pretrained weights.
     :return: pytorch SSLNet model
     :rtype: nn.Module
     """
 
-    if cfg.ssl_repo_path:
+    if ssl_repo_path:
         # use repo from disk (for offline use)
-        log.info('Using local %s', cfg.ssl_repo_path)
-        sslnet: nn.Module = torch.hub.load(cfg.ssl_repo_path, 'harnet30', source='local',
-                                           class_num=cfg.data.output_size, pretrained=pretrained)
+        log.info('Using local %s', ssl_repo_path)
+        sslnet: nn.Module = torch.hub.load(ssl_repo_path, 'harnet10', source='local', class_num=2,
+                                           pretrained=pretrained)
     else:
         # download repo from github
         repo = 'OxWearables/ssl-wearables'
-        sslnet: nn.Module = torch.hub.load(repo, 'harnet30', trust_repo=True,
-                                           class_num=cfg.data.output_size, pretrained=pretrained)
+        sslnet: nn.Module = torch.hub.load(repo, 'harnet10', trust_repo=True, 
+                                           class_num=2, pretrained=pretrained)
 
-    if load_weights:
+    if ssl_weights_path:
         # load pretrained weights
-        model_dict = torch.load(cfg.sslnet.weights, map_location=device)
+        model_dict = torch.load(ssl_weights_path, map_location=device)
         sslnet.load_state_dict(model_dict)
-        log.info('Loaded SSLNet weights from %s', cfg.sslnet.weights)
+        log.info('Loaded SSLNet weights from %s', ssl_weights_path)
 
     sslnet.to(device)
 
@@ -163,7 +163,7 @@ def predict(model, data_loader, my_device, output_logits=False):
         )
 
 
-def train(model, train_loader, val_loader, cfg, my_device, weights):
+def train(model, train_loader, val_loader, cfg, my_device, weights, fold="0"):
     """
     Iterate over the training dataloader and train a pytorch model.
     After each epoch, validate model and early stop when validation loss function bottoms out.
@@ -188,7 +188,7 @@ def train(model, train_loader, val_loader, cfg, my_device, weights):
         loss_fn = nn.CrossEntropyLoss()
 
     early_stopping = EarlyStopping(
-        patience=cfg.sslnet.patience, path=cfg.sslnet.weights, verbose=True, trace_func=log.info
+        patience=cfg.sslnet.patience, path=cfg.sslnet.weights.format(fold), verbose=True, trace_func=log.info
     )
 
     for epoch in range(cfg.sslnet.num_epoch):
@@ -230,7 +230,7 @@ def train(model, train_loader, val_loader, cfg, my_device, weights):
 
         if early_stopping.early_stop:
             log.info('Early stopping')
-            log.info('SSLNet weights saved to %s', cfg.sslnet.weights)
+            log.info('SSLNet weights saved to %s', cfg.sslnet.weights.format(fold))
             break
 
     return model
