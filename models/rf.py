@@ -7,6 +7,7 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 from imblearn.ensemble import BalancedRandomForestClassifier
 
+from models.utils import butterfilt
 import utils.utils as utils
 
 log = utils.get_logger()
@@ -49,71 +50,122 @@ def extract_features(data, sample_rate, num_workers=1):
 
     return x_feats
 
-
 def _handcraft_features(xyz, sample_rate):
-    """Our baseline handcrafted features. xyz is a window of shape (N,3)"""
+    ''' Extract commonly used HAR time-series features. xyz is a window of shape (N,3) '''
+    feats = {}
+
+    v = np.linalg.norm(xyz, axis=1)
+    v = v - 1  # detrend: "remove gravity"
+    v = np.clip(v, -2, 2)  # clip abnormaly high values
+
+    # Moments features
+    feats.update(moments_features(v, sample_rate))
+
+    # Quantile features
+    feats.update(quantile_features(v, sample_rate))
+
+    # Autocorrelation features
+    feats.update(autocorr_features(v, sample_rate))
+
+    # Spectral features
+    feats.update(spectral_features(v, sample_rate))
+
+    # FFT features
+    feats.update(fft_features(v, sample_rate))
+
+    # Peak features
+    feats.update(peaks_features(v, sample_rate))
+
+    return feats
+
+
+def moments_features(v, sample_rate=None):
+    """ Statistical moments """
+    feats = {
+        'avg': np.mean(v),
+        'std': np.std(v),
+        'skew': stats.skew(v),
+        'kurt': stats.kurtosis(v),
+    }
+    return feats
+
+
+def quantile_features(v, sample_rate=None):
+    """ Quantiles (min, 25th, med, 75th, max) """
+    feats = {}
+    feats['min'], feats['q25'], feats['med'], feats['q75'], feats['max'] = np.quantile(v, (0, .25, .5, .75, 1))
+    return feats
+
+
+def autocorr_features(v, sample_rate):
+    """ Autocorrelation (0.5, 1 and 2 seconds lag) """
+    feats = {}
+    with np.errstate(divide='ignore', invalid='ignore'):  # ignore div by 0 warnings
+        onesec = int(sample_rate)
+        halfsec = int(sample_rate // 2)
+        twosec = int(2 * sample_rate)
+        feats['autocorr_halfsec'] = np.nan_to_num(np.corrcoef(v[:-halfsec], v[halfsec:]))[0, 1]
+        feats['autocorr_onesec'] = np.nan_to_num(np.corrcoef(v[:-onesec], v[onesec:]))[0, 1]
+        feats['autocorr_twosec'] = np.nan_to_num(np.corrcoef(v[:-twosec], v[twosec:]))[0, 1]
+    return feats
+
+
+def spectral_features(v, sample_rate):
+    """ Spectral entropy, average power, dominant frequencies """
 
     feats = {}
-    feats["xMean"], feats["yMean"], feats["zMean"] = np.mean(xyz, axis=0)
-    feats["xStd"], feats["yStd"], feats["zStd"] = np.std(xyz, axis=0)
-    feats["xRange"], feats["yRange"], feats["zRange"] = np.ptp(xyz, axis=0)
 
-    x, y, z = xyz.T
+    freqs, powers = signal.periodogram(v, fs=sample_rate, detrend='constant')
 
-    with np.errstate(
-        divide="ignore", invalid="ignore"
-    ):  # ignore div by 0 warnings
-        feats["xyCorr"] = np.nan_to_num(np.corrcoef(x, y)[0, 1])
-        feats["yzCorr"] = np.nan_to_num(np.corrcoef(y, z)[0, 1])
-        feats["zxCorr"] = np.nan_to_num(np.corrcoef(z, x)[0, 1])
+    with np.errstate(divide='ignore', invalid='ignore'):  # ignore div by 0 warnings
+        feats['pentropy'] = np.nan_to_num(stats.entropy(powers + 1e-16))
 
-    m = np.linalg.norm(xyz, axis=1)
-
-    feats["mean"] = np.mean(m)
-    feats["std"] = np.std(m)
-    feats["range"] = np.ptp(m)
-    feats["mad"] = stats.median_abs_deviation(m)
-    feats["kurt"] = stats.kurtosis(m)
-    feats["skew"] = stats.skew(m)
-    feats["enmomean"] = np.mean(np.abs(m - 1))
-
-    # Spectrum using Welch's method with 3s segment length
-    # First run without detrending to get the true spectrum
-    freqs, powers = signal.welch(
-        m,
-        fs=sample_rate,
-        nperseg=3 * sample_rate,
-        noverlap=2 * sample_rate,
-        detrend=False,
-        average="median",
-    )
-
-    with np.errstate(
-        divide="ignore", invalid="ignore"
-    ):  # ignore div by 0 warnings
-        feats["pentropy"] = np.nan_to_num(stats.entropy(powers + 1e-16))
-
-    # Spectrum using Welch's method with 3s segment length
-    # Now do detrend to find dominant freqs
-    freqs, powers = signal.welch(
-        m,
-        fs=sample_rate,
-        nperseg=3 * sample_rate,
-        noverlap=2 * sample_rate,
-        detrend="constant",
-        average="median",
-    )
+    feats['avgpow'] = np.mean(powers)
 
     peaks, _ = signal.find_peaks(powers)
     peak_powers = powers[peaks]
     peak_freqs = freqs[peaks]
     peak_ranks = np.argsort(peak_powers)[::-1]
-    if len(peaks) >= 2:
-        feats["f1"] = peak_freqs[peak_ranks[0]]
-        feats["f2"] = peak_freqs[peak_ranks[1]]
-    elif len(peaks) == 1:
-        feats["f1"] = feats["f2"] = peak_freqs[peak_ranks[0]]
+
+    TOPN = 3
+    feats = {}
+    feats.update({f"f{i + 1}": 0 for i in range(TOPN)})
+    feats.update({f"p{i + 1}": 0 for i in range(TOPN)})
+    for i, j in enumerate(peak_ranks[:TOPN]):
+        feats[f"f{i + 1}"] = peak_freqs[j]
+        feats[f"p{i + 1}"] = peak_powers[j]
+
+    return feats
+
+
+def fft_features(v, sample_rate, nfreqs=5):
+    """ Power of frequencies 0Hz, 1Hz, 2Hz, ... using Welch's method """
+
+    _, powers = signal.welch(
+        v, fs=sample_rate,
+        nperseg=sample_rate,
+        noverlap=sample_rate // 2,
+        detrend='constant',
+        average='median'
+    )
+
+    feats = {f"fft{i}": powers[i] for i in range(nfreqs + 1)}
+
+    return feats
+
+
+def peaks_features(v, sample_rate):
+    """ Features of the signal peaks """
+
+    feats = {}
+    u = butterfilt(v, 5, fs=sample_rate)  # lowpass 5Hz
+    peaks, peak_props = signal.find_peaks(u, distance=0.2 * sample_rate, prominence=0.25)
+    feats['npeaks'] = len(peaks) / (len(v) / sample_rate)  # peaks/sec
+    if len(peak_props['prominences']) > 0:
+        feats['peaks_avg_promin'] = np.mean(peak_props['prominences'])
+        feats['peaks_min_promin'] = np.min(peak_props['prominences'])
+        feats['peaks_max_promin'] = np.max(peak_props['prominences'])
     else:
-        feats["f1"] = feats["f2"] = 0
+        feats['peaks_avg_promin'] = feats['peaks_min_promin'] = feats['peaks_max_promin'] = 0
 
     return feats

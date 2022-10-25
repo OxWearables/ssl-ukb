@@ -10,7 +10,7 @@ import pandas as pd
 from torch.utils.data.dataset import Dataset
 from transforms3d.axangles import axangle2mat
 from torchvision import transforms
-from sklearn.model_selection import GroupShuffleSplit
+from sklearn.model_selection import GroupShuffleSplit, StratifiedGroupKFold
 
 import utils.utils as utils
 
@@ -112,11 +112,12 @@ class NormalDataset(Dataset):
         return sample, y, pid
 
 
-def load_data(cfg):
+def load_data(cfg, cv='GroupKFold'):
     X = np.load(cfg.data.X_path, mmap_mode='r')
     Y = np.load(cfg.data.Y_path)
-    pid = np.load(cfg.data.PID_path)  # participant IDs
-    time = np.load(cfg.data.time_path)
+    pid = np.load(cfg.data.PID_path, allow_pickle=True)  # participant IDs
+    time = np.load(cfg.data.time_path, allow_pickle=True)
+    source = np.load(cfg.data.processed_data+'Y_source.npy', allow_pickle=True)
 
     log.info('X shape: %s', X.shape)
     log.info('Y shape: %s', Y.shape)
@@ -124,7 +125,7 @@ def load_data(cfg):
 
     y = utils.le.transform(Y)
 
-    input_size = cfg.data.input_size
+    input_size = cfg.data.winsec * cfg.data.sample_rate
     if X.shape[1] == input_size:
         log.info("No need to downsample")
     else:
@@ -134,12 +135,26 @@ def load_data(cfg):
         "f4"
     )  # PyTorch defaults to float32
 
-    # generate train/test splits
-    folds = GroupShuffleSplit(
-        1, test_size=0.2, random_state=42
-    ).split(X, y, groups=pid)
-    train_idx, test_idx = next(folds)
+    if cv == 'GroupKFold':
+        if len(np.unique(source))> 1:
+            # generate train/test splits
+            # Stratify based on data source
+            folds = StratifiedGroupKFold(
+                cfg.num_folds
+            ).split(X, source, groups=pid)
+        else:
+            folds = StratifiedGroupKFold(
+                cfg.num_folds
+            ).split(X, Y, groups=pid)
+    else:
+        folds = GroupShuffleSplit(
+            cfg.num_folds, test_size=0.2, random_state=42
+        ).split(X, y, groups=pid)
 
+    return {fold: split_data(X, y, pid, time, train_idx, test_idx) 
+                for fold, (train_idx, test_idx) in enumerate(folds)}
+
+def split_data(X, y, pid, time, train_idx, test_idx):
     x_test = X[test_idx]
     y_test = y[test_idx]
     time_test = time[test_idx]
@@ -173,7 +188,6 @@ def load_data(cfg):
         x_val, y_val, group_val, time_val,
         x_test, y_test, group_test, time_test,
     )
-
 
 def get_inverse_class_weights(y):
     """ Return a list with inverse class frequencies in y """

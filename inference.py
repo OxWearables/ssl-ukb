@@ -146,7 +146,8 @@ if __name__ == '__main__':
     )
 
     # load pretrained SSL model
-    sslnet = ssl.get_sslnet(my_device, cfg, load_weights=True)
+    # TODO: Do not run inference on only first trained model
+    sslnet = ssl.get_sslnet(my_device, cfg.ssl_repo_path, cfg.sslnet.weights.format(0))
 
     # load pretrained HMM
     hmm_ssl = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
