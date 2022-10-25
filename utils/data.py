@@ -117,7 +117,7 @@ def load_data(cfg, cv='GroupKFold'):
     Y = np.load(cfg.data.Y_path)
     pid = np.load(cfg.data.PID_path, allow_pickle=True)  # participant IDs
     time = np.load(cfg.data.time_path, allow_pickle=True)
-    source = np.load(cfg.data.processed_data+'Y_source.npy', allow_pickle=True)
+    source = np.load(cfg.data.processed_data+'/Y_source.npy', allow_pickle=True)
 
     log.info('X shape: %s', X.shape)
     log.info('Y shape: %s', Y.shape)
