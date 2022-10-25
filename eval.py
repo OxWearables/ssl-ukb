@@ -150,7 +150,7 @@ def evaluate_model(training_data, cfg, fold="0"):
         cmatrix_hmm_learn = pd.DataFrame(np.sum(cmatrix_hmm_learn, axis=0), index=le.classes_, columns=le.classes_)
 
         step_df = pd.DataFrame({'pid': my_pids, 'tot_steps': step_tot})
-        step_df.to_csv('{}/steps_{}'.format(cfg.ukb_output_path, fold))
+        step_df.to_csv('{}/steps_{}.csv'.format(cfg.ukb_output_path, fold))
 
         plots = {**plots, **{
             'matrix_ssl': cmatrix,
@@ -251,7 +251,7 @@ def evaluate_folds(out_dir, folds, models=['rf', 'rf_hmm', 'rf_hmm_learn', 'ssl'
       'f1': '{:.3f} [\u00B1{:.3f}]'.format(master_report['f1_'+model].mean(), master_report['f1_'+model].std()), 
       'kappa': '{:.3f} [\u00B1{:.3f}]'.format(master_report['kappa_'+model].mean(), master_report['kappa_'+model].std()),
       'accuracy': '{:.3f} [\u00B1{:.3f}]'.format(master_report['accuracy_'+model].mean(), master_report['accuracy_'+model].std())} 
-      for model in models])
+      for model in models], index=models)
     
     summary_scores.to_csv(out_dir+'/summary_scores.csv')
 

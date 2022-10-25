@@ -39,5 +39,5 @@ if __name__ == "__main__":
 
         evaluate_model(fold_data, cfg, str(fold))
 
-    evaluate_folds(cfg.ukb_output_path, cfg.num_folds, ['rf', 'rf_hmm', 'rf_hmm_learn'])    
+    evaluate_folds(cfg.ukb_output_path, cfg.num_folds)    
 
