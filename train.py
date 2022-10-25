@@ -48,7 +48,7 @@ def train_model(training_data, cfg, fold="0"):
 
     if cfg.sslnet.enabled:
         # load SSL model with self-supervised pre-trained weights
-        sslnet = ssl.get_sslnet(my_device, cfg.ssl_repo_path, cfg.sslnet.weights.format(fold), pretrained=True)
+        sslnet = ssl.get_sslnet(my_device, cfg.ssl_repo_path, pretrained=True)
 
         if cfg.multi_gpu:
             sslnet = torch.nn.DataParallel(sslnet, output_device=my_device, device_ids=cfg.gpu_ids)
