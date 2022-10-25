@@ -42,11 +42,10 @@ data:
   raw_data: "${.data_root}/raw"
   processed_data: "${.data_root}/processed"
   X_path: "${.processed_data}/X.npy"
-  Y_path: "${.processed_data}/walk.npy"
-  PID_path: "${.processed_data}/pid.npy"
+  Y_path: "${.processed_data}/Y_is_walk.npy"
+  PID_path: "${.processed_data}/Y_pid.npy"
   time_path: "${.processed_data}/T.npy"
   sample_rate: 30
   winsec: 10
   step_threshold: 2
-
-
+  

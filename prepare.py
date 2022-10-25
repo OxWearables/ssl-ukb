@@ -115,9 +115,9 @@ def prepare_data(cfg, n_workers=-1):
 def prepare_participant_data(filename, sample_rate, winsec, step_threshold, source):
     data = read_csv(filename)
     if source == 'OxWalk':
-        data = resample(data, cfg.data.sample_rate, 'steps')
+        data = resample(data, sample_rate, 'steps')
     else:
-        data = resample(data, cfg.data.sample_rate)
+        data = resample(data, sample_rate)
     X, Y, T = utils.make_windows(data, winsec, 
                                          sample_rate, step_threshold)
     #pid = re.search(r'(P\d{2})', os.path.basename(filename)).group(1).upper()  # P01, P02, ...
