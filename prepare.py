@@ -93,23 +93,42 @@ def resample(data: pd.DataFrame, sample_rate, annotation=None, dropna=False):
 
     return data_resampled
 
-def prepare_data(cfg, n_workers=-1):
-    files = [(source, elem) for source in cfg.data.name.split(",") for elem in glob("{}/{}/*.csv".format(cfg.data.raw_data, source))]
+def prepare_data(cfg, n_workers=-1, overwrite=True):
+    if overwrite or not os.path.exists(cfg.data.processed_data+"/config.txt"):
+        log.info("Processing raw data.")
+        files = [(source, elem) for source in cfg.data.name.split(",") 
+                                for elem in glob("{}/{}/*.csv".format(cfg.data.raw_data, source))]
 
-    X, Ys, T = zip(*Parallel(n_jobs=n_workers)(delayed(prepare_participant_data)(filename, cfg.data.sample_rate, cfg.data.winsec, 
-                                                                                 cfg.data.step_threshold, data_source) 
-                                               for data_source, filename in tqdm(files)))
+        X, Ys, T = zip(*Parallel(n_jobs=n_workers)(
+            delayed(prepare_participant_data)(filename, cfg.data.sample_rate, cfg.data.winsec, 
+                                              cfg.data.step_threshold, data_source) 
+                                                   for data_source, filename in tqdm(files)))
 
-    X = np.concatenate(X)
-    T = np.concatenate(T)
-    Ys = pd.concat(Ys)
+        X = np.concatenate(X)
+        T = np.concatenate(T)
+        Ys = pd.concat(Ys)
 
-    Path(cfg.data.processed_data).mkdir(parents=True, exist_ok=True)
-    np.save(cfg.data.processed_data+"/X.npy", X)
-    np.save(cfg.data.processed_data+"/T.npy", T)
+        Path(cfg.data.processed_data).mkdir(parents=True, exist_ok=True)
+
+        np.save(cfg.data.processed_data+"/X.npy", X)
+        np.save(cfg.data.processed_data+"/T.npy", T)
     
-    for col in Ys.columns:
-        np.save("{}/Y_{}.npy".format(cfg.data.processed_data, col), np.array(Ys[col]))
+        for col in Ys.columns:
+            np.save("{}/Y_{}.npy".format(cfg.data.processed_data, col), np.array(Ys[col]))
+        
+        with open(cfg.data.processed_data+"/config.txt", "w") as f:
+            f.write(str({
+                'Data Source(s)': cfg.data.name,
+                'Sample Rate': "{}Hz".format(cfg.data.sample_rate),
+                'Window Size': "{}s".format(cfg.data.winsec),
+                'Step Walking Threshold': "{} step(s) per window".format(cfg.data.step_threshold)
+            }))
+
+    else:
+        with open(cfg.data.processed_data+"/config.txt", "rt") as f:
+            config = f.read()
+            log.info(config)
+        log.info("Using already processed data.")
 
 
 def prepare_participant_data(filename, sample_rate, winsec, step_threshold, source):
@@ -133,4 +152,4 @@ if __name__ == "__main__":
     cfg = OmegaConf.load("conf/config.yaml")
     log.info(str(OmegaConf.to_yaml(cfg)))
 
-    prepare_data(cfg, 10)
+    prepare_data(cfg, 10, cfg.data.overwrite)

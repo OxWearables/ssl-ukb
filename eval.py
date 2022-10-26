@@ -38,15 +38,29 @@ from utils.data import NormalDataset, load_data
 log = utils.get_logger()
 
 def score(name, current_pid, pid, x, y, y_pred, t, interval, hmm, hmm_learn, step_counter, classes, plotData=False):
-    subject_filter = current_pid == pid
-    subject_true = y[subject_filter]
-    subject_pred = y_pred[subject_filter]
+    subject_mask = current_pid == pid
+
+    subject_true = y[subject_mask]
+    subject_pred = y_pred[subject_mask]
+    subject_x = x[subject_mask]
+    subject_t = t[subject_mask]
 
     #steps = step_counter.predict(x[subject_filter]).sum()
     steps=0
 
-    subject_pred_hmm =  hmm.predict(subject_pred, t[subject_filter], interval)
-    subject_pred_hmm_learn =  hmm_learn.predict(subject_pred, t[subject_filter], interval)
+    # Smooth the label predictions using HMM smoothing
+    subject_pred_hmm =  hmm.predict(subject_pred, t[subject_mask], interval)
+    subject_pred_hmm_learn =  hmm_learn.predict(subject_pred, t[subject_mask], interval)
+
+    # Remove unlabelled training data identified with -1
+    labelled_mask = subject_true != -1
+
+    subject_true = subject_true[labelled_mask]
+    subject_pred = subject_pred[labelled_mask]
+    subject_x = subject_x[labelled_mask]
+    subject_t = subject_t[labelled_mask]
+    subject_pred_hmm = subject_pred_hmm[labelled_mask]
+    subject_pred_hmm_learn = subject_pred_hmm_learn[labelled_mask]
 
     result = utils.classification_scores(subject_true, subject_pred)
     result_hmm = utils.classification_scores(subject_true, subject_pred_hmm)
@@ -57,10 +71,10 @@ def score(name, current_pid, pid, x, y, y_pred, t, interval, hmm, hmm_learn, ste
     cmatrix_hmm_learn = metrics.confusion_matrix(subject_true, subject_pred_hmm_learn, labels=utils.classes)
 
     # plot subject predictions
-    df_true = utils.raw_to_df(x[subject_filter], subject_true, t[subject_filter], classes)
-    df_pred = utils.raw_to_df(x[subject_filter], subject_pred, t[subject_filter], classes)
-    df_pred_hmm = utils.raw_to_df(x[subject_filter], subject_pred_hmm, t[subject_filter], classes)
-    df_pred_hmm_learn = utils.raw_to_df(x[subject_filter], subject_pred_hmm_learn, t[subject_filter], classes)
+    df_true = utils.raw_to_df(subject_x, subject_true, subject_t, classes)
+    df_pred = utils.raw_to_df(subject_x, subject_pred, subject_t, classes)
+    df_pred_hmm = utils.raw_to_df(subject_x, subject_pred_hmm, subject_t, classes)
+    df_pred_hmm_learn = utils.raw_to_df(subject_x, subject_pred_hmm_learn, subject_t, classes)
 
     if plotData:
         fig = plotTimeSeries(df_true)

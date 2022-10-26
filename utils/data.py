@@ -151,10 +151,10 @@ def load_data(cfg, cv='GroupKFold'):
             cfg.num_folds, test_size=0.2, random_state=42
         ).split(X, y, groups=pid)
 
-    return {fold: split_data(X, y, pid, time, train_idx, test_idx) 
+    return {fold: split_data(X, y, pid, time, train_idx, test_idx, fold) 
                 for fold, (train_idx, test_idx) in enumerate(folds)}
 
-def split_data(X, y, pid, time, train_idx, test_idx):
+def split_data(X, y, pid, time, train_idx, test_idx, fold):
     x_test = X[test_idx]
     y_test = y[test_idx]
     time_test = time[test_idx]
@@ -166,8 +166,16 @@ def split_data(X, y, pid, time, train_idx, test_idx):
     pid = pid[train_idx]
     time = time[train_idx]
 
+    # Remove unlabelled training data identified with -1
+    lablled_mask = y != -1
+    
+    X = X[lablled_mask]
+    y = y[lablled_mask]
+    pid = pid[lablled_mask]
+    time = time[lablled_mask]
+
     folds = GroupShuffleSplit(
-        1, test_size=0.125, random_state=41
+        1, test_size=0.125, random_state=41+fold
     ).split(X, y, groups=pid)
     train_idx, val_idx = next(folds)
 
