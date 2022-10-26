@@ -39,4 +39,4 @@ if __name__ == "__main__":
 
         evaluate_model(fold_data, cfg, str(fold))
 
-    evaluate_folds(cfg.ukb_output_path, cfg.num_folds)    
+    evaluate_folds(cfg, stratify_scores=True)    
