@@ -49,8 +49,8 @@ def score(name, current_pid, pid, x, y, y_pred, t, interval, hmm, hmm_learn, ste
     steps=0
 
     # Smooth the label predictions using HMM smoothing
-    subject_pred_hmm =  hmm.predict(subject_pred, t[subject_mask], interval)
-    subject_pred_hmm_learn =  hmm_learn.predict(subject_pred, t[subject_mask], interval)
+    subject_pred_hmm = hmm.predict(subject_pred, subject_t, interval)
+    subject_pred_hmm_learn = hmm_learn.predict(subject_pred, subject_t, interval)
 
     # Remove unlabelled training data identified with -1
     labelled_mask = subject_true != -1
@@ -134,7 +134,7 @@ def evaluate_model(training_data, cfg, fold="0"):
 
         test_loader = DataLoader(
             test_dataset,
-            batch_size=50,
+            batch_size=cfg.sslnet.batch_size,
             shuffle=False,
             num_workers=0,
         )
@@ -164,7 +164,7 @@ def evaluate_model(training_data, cfg, fold="0"):
         cmatrix_hmm_learn = pd.DataFrame(np.sum(cmatrix_hmm_learn, axis=0), index=le.classes_, columns=le.classes_)
 
         step_df = pd.DataFrame({'pid': my_pids, 'tot_steps': step_tot})
-        step_df.to_csv('{}/steps_{}.csv'.format(cfg.ukb_output_path, fold))
+        step_df.to_csv('{}/steps_{}.csv'.format(cfg.output_path, fold))
 
         plots = {**plots, **{
             'matrix_ssl': cmatrix,
@@ -174,11 +174,11 @@ def evaluate_model(training_data, cfg, fold="0"):
         
         # save SSL reports
         dfr = utils.classification_report(results, subjects, 
-                                      os.path.join(cfg.ukb_output_path, 'report_ssl_{}.csv'.format(fold)))
+                                      os.path.join(cfg.output_path, 'report_ssl_{}.csv'.format(fold)))
         dfr_hmm = utils.classification_report(results_hmm, subjects, 
-                                          os.path.join(cfg.ukb_output_path, 'report_ssl_hmm_{}.csv'.format(fold)))
+                                          os.path.join(cfg.output_path, 'report_ssl_hmm_{}.csv'.format(fold)))
         dfr_hmm_learn = utils.classification_report(results_hmm, subjects, 
-                                                os.path.join(cfg.ukb_output_path, 'report_ssl_hmm_learn_{}.csv'.format(fold)))
+                                                os.path.join(cfg.output_path, 'report_ssl_hmm_learn_{}.csv'.format(fold)))
 
         log.info('Results SSL:\n%s', dfr.mean())
         log.info('Results SSL-HMM:\n%s\n', dfr_hmm.mean())
@@ -197,7 +197,7 @@ def evaluate_model(training_data, cfg, fold="0"):
         x_feats = rf.extract_features(x_test, sample_rate=cfg.data.sample_rate, num_workers=cfg.num_workers)
 
         log.info('Get RF test predictions')
-        y_test_pred_rf = rfmodel.predict(x_feats)
+        y_test_pred_rf = np.array(rfmodel.predict(x_feats), dtype='i')
 
         # RF results
         results_rf, results_hmm_rf, results_hmm_learn_rf, cmatrix_rf, cmatrix_hmm_rf, cmatrix_hmm_learn_rf, step_tot, subjects = \
@@ -223,11 +223,11 @@ def evaluate_model(training_data, cfg, fold="0"):
         }}
 
         # save RF reports
-        dfr_rf = utils.classification_report(results_rf, subjects, os.path.join(cfg.ukb_output_path, 
+        dfr_rf = utils.classification_report(results_rf, subjects, os.path.join(cfg.output_path, 
                                                                                 'report_rf_{}.csv'.format(fold)))
-        dfr_hmm_rf = utils.classification_report(results_hmm_rf, subjects, os.path.join(cfg.ukb_output_path, 
+        dfr_hmm_rf = utils.classification_report(results_hmm_rf, subjects, os.path.join(cfg.output_path, 
                                                                                         'report_rf_hmm_{}.csv'.format(fold)))
-        dfr_hmm_learn_rf = utils.classification_report(results_hmm_learn_rf, subjects, os.path.join(cfg.ukb_output_path, 
+        dfr_hmm_learn_rf = utils.classification_report(results_hmm_learn_rf, subjects, os.path.join(cfg.output_path, 
                                                                                                     'report_rf_hmm_learn_{}.csv'.format(fold)))
 
         log.info('Results RF:\n%s', dfr_rf.mean())
@@ -248,26 +248,50 @@ def evaluate_model(training_data, cfg, fold="0"):
 
         log.info('Confusion %s\n%s\n', title, matrix)
 
-def evaluate_folds(out_dir, folds, models=['rf', 'rf_hmm', 'rf_hmm_learn', 'ssl', 'ssl_hmm', 'ssl_hmm_learn'],
-                   stratify_scores=False):
+def evaluate_folds(cfg, folds=None, stratify_scores=False):
+    folds = folds or cfg.num_folds
+    summary_folder = cfg.output_path + '/Summary'
+    Path(summary_folder).mkdir(parents=True, exist_ok=True)
+
+    models = {}
+    if cfg.rf.enabled:
+        models.update({'rf': 'Random Forest (RF)', 
+                       'rf_hmm': 'RF + Hidden Markov Model', 
+                       'rf_hmm_learn': 'RF + Unsupervised Hidden Markov Model'})
+
+    if cfg.sslnet.enabled:
+        models.update({'ssl': 'Self supervised ResNet 18 (SSL)', 
+                       'ssl_hmm': 'SSL + Hidden Markov Model', 
+                       'ssl_hmm_learn': 'SSL + Unsupervised Hidden Markov Model'})
+
     master_report = pd.concat([
-        pd.concat([pd.read_csv('{}/report_{}_{}.csv'.format(out_dir, model, fold), 
+        pd.concat([pd.read_csv('{}/report_{}_{}.csv'.format(cfg.output_path, model, fold), 
                                index_col=[0]) 
                    for fold in range(folds)]).add_suffix('_'+model)
-        for model in models], axis=1)
+        for model in models.keys()], axis=1)
     
-    for f in glob(out_dir+"/*.csv"):
-      os.remove(f)
+    master_report.index.name = 'Participant'
 
-    master_report.to_csv('outputs/master_report.csv')
+    with open(summary_folder+"/config.txt", "w") as f:
+        f.write(str({
+            'Data Source(s)': cfg.data.name,
+            'Sample Rate': "{}Hz".format(cfg.data.sample_rate),
+            'Window Size': "{}s".format(cfg.data.winsec),
+            'Step Walking Threshold': "{} step(s) per window".format(cfg.data.step_threshold),
+            'SSLNet Settings': cfg.sslnet,
+            'RF Settings': cfg.rf
+        }))
+
+    master_report.to_csv(summary_folder+'/master_report.csv')
 
     summary_scores = pd.DataFrame([{
       'f1': '{:.3f} [\u00B1{:.3f}]'.format(master_report['f1_'+model].mean(), master_report['f1_'+model].std()), 
       'kappa': '{:.3f} [\u00B1{:.3f}]'.format(master_report['kappa_'+model].mean(), master_report['kappa_'+model].std()),
       'accuracy': '{:.3f} [\u00B1{:.3f}]'.format(master_report['accuracy_'+model].mean(), master_report['accuracy_'+model].std())} 
-      for model in models], index=models)
-    
-    summary_scores.to_csv(out_dir+'/summary_scores.csv')
+      for model in models.keys()], index=models.keys())
+
+    summary_scores.index.name='Model'
+    summary_scores.to_csv(summary_folder+'/summary_scores.csv')
 
     fig = go.Figure(data=[go.Table(
                     columnwidth=[100, 40, 40, 40],
@@ -277,19 +301,14 @@ def evaluate_folds(out_dir, folds, models=['rf', 'rf_hmm', 'rf_hmm_learn', 'ssl'
                                         'Accuracy score'],
                                         font_size=16,
                                         height=30),
-                    cells=dict(values=[['Random Forest (RF)', 
-                                        'RF + Hidden Markov Model', 
-                                        'RF + Unsupervised Hidden Markov Model', 
-                                        'Self supervised ResNet 18 (SSL)', 
-                                        'SSL + Hidden Markov Model', 
-                                        'SSL + Unsupervised Hidden Markov Model'], 
+                    cells=dict(values=[models.values(), 
                                summary_scores['f1'],
                                summary_scores['kappa'],
                                summary_scores['accuracy']],
                                font_size=16,
                                height=30))
                  ])
-    fig.write_image(out_dir+'/modelPerformance.png', width=1200, height=400)
+    fig.write_image(summary_folder+'/modelPerformance.png', width=1200, height=400)
 
     if stratify_scores:
         master_report['PD'] = ['_' in lab for lab in master_report.index]
@@ -308,7 +327,7 @@ def evaluate_folds(out_dir, folds, models=['rf', 'rf_hmm', 'rf_hmm_learn', 'ssl'
                                                             master_report.loc[~master_report.PD, 'accuracy_'+model].std())} 
           for model in models])
     
-        summary_scores_stratified.to_csv(out_dir+'/summary_scores_stratified.csv')
+        summary_scores_stratified.to_csv(summary_folder+'/summary_scores_stratified.csv')
     
         fig2 = go.Figure(data=[go.Table(
                             header=dict(values=['Model', 
@@ -332,11 +351,11 @@ def evaluate_folds(out_dir, folds, models=['rf', 'rf_hmm', 'rf_hmm_learn', 'ssl'
                                        font_size=16,
                                        height=30))
                          ])
-        fig2.write_image(out_dir+'/summary_scores_stratified.png', width=1200, height=800)
+        fig2.write_image(summary_folder+'/summary_scores_stratified.png', width=1200, height=800)
 
-        return master_report, summary_scores, summary_scores_stratified
-
-    return master_report, summary_scores
+    # Remove all csv files in the base output path    
+    for f in glob(cfg.output_path+"/*.csv"):
+        os.remove(f)
 
 if __name__ == '__main__':
     cfg = OmegaConf.load("conf/config.yaml")

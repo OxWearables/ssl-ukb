@@ -60,14 +60,14 @@ def train_model(training_data, cfg, fold="0"):
 
         train_loader = DataLoader(
             train_dataset,
-            batch_size=100,
+            batch_size=cfg.sslnet.batch_size,
             shuffle=True,
             num_workers=2,
         )
 
         val_loader = DataLoader(
             val_dataset,
-            batch_size=100,
+            batch_size=cfg.sslnet.batch_size,
             shuffle=False,
             num_workers=0,
         )

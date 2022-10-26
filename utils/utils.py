@@ -54,7 +54,7 @@ def raw_to_df(data, labels, time, classes, label_proba=False, reindex=True, freq
 
     for i, data in enumerate(data):
         if not label_proba:
-            label = labels[i]
+            label = int(labels[i])
             label_matrix[i, label] = 1
 
         x = data[:, 0]
@@ -229,7 +229,7 @@ def make_windows(data: pd.DataFrame, window_sec: int=None, sample_rate: int=None
         Ys = []
     
     for _, w in data.resample(f"{window_sec}s", origin='start'):
-        if w.isna().any() or len(w) < window_sec * sample_rate:
+        if w.isna().any(axis=None) or (len(w) < window_sec * sample_rate):
             continue
         
         if len(annotation_cols) == 1:

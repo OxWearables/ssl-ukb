@@ -9,8 +9,8 @@ Example usage:
     python inference.py /data/ukb-accelerometer/group1/4027057_90001_0_0.cwa.gz
 
 Output:
-    Prediction DataFrame in {eid}.parquet format, stored in ukb_output_path/ (see conf/config.yaml).
-    If the input file is stored in a groupX folder, output will be in ukb_output_path/groupX/
+    Prediction DataFrame in {eid}.parquet format, stored in output_path/ (see conf/config.yaml).
+    If the input file is stored in a groupX folder, output will be in output_path/groupX/
 
     An {eid}_info.csv file will be saved alongside the parquet file with the actipy info dict.
 """
@@ -180,9 +180,9 @@ if __name__ == '__main__':
     log.info('Saving dataframe')
 
     if group:
-        path = os.path.join(cfg.ukb_output_path, group)
+        path = os.path.join(cfg.output_path, group)
     else:
-        path = cfg.ukb_output_path
+        path = cfg.output_path
 
     Path(path).mkdir(parents=True, exist_ok=True)
     df.to_parquet(os.path.join(path, pid + '.parquet'), engine='pyarrow')

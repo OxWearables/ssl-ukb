@@ -114,16 +114,17 @@ class NormalDataset(Dataset):
 
 def load_data(cfg, cv='GroupKFold'):
     X = np.load(cfg.data.X_path, mmap_mode='r')
-    Y = np.load(cfg.data.Y_path)
+    y = np.load(cfg.data.Y_path)
     pid = np.load(cfg.data.PID_path, allow_pickle=True)  # participant IDs
     time = np.load(cfg.data.time_path, allow_pickle=True)
     source = np.load(cfg.data.processed_data+'/Y_source.npy', allow_pickle=True)
 
     log.info('X shape: %s', X.shape)
-    log.info('Y shape: %s', Y.shape)
-    log.info('Label distribution:\n%s', pd.Series(Y).value_counts())
+    log.info('Y shape: %s', y.shape)
+    log.info('Label distribution:\n%s', pd.Series(y).value_counts())
 
-    y = utils.le.transform(Y)
+    # TODO: Manage transformation given missing data with label -1
+    #y = utils.le.transform(y)
 
     input_size = cfg.data.winsec * cfg.data.sample_rate
     if X.shape[1] == input_size:
@@ -145,7 +146,7 @@ def load_data(cfg, cv='GroupKFold'):
         else:
             folds = StratifiedGroupKFold(
                 cfg.num_folds
-            ).split(X, Y, groups=pid)
+            ).split(X, y, groups=pid)
     else:
         folds = GroupShuffleSplit(
             cfg.num_folds, test_size=0.2, random_state=42
