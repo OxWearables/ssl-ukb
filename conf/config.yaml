@@ -5,7 +5,7 @@ num_workers: 10  # number of CPU cores for parallel tasks
 num_folds: 5 # number of folds in the cross validation
 
 # location where to save prediction outputs
-ukb_output_path: outputs
+output_path: outputs
 
 # For offline usage only (eg BMRC): set this to the location of the OxWearables/ssl-wearables repository.
 # Leave empty otherwise (will auto download repo from Github when empty).
