@@ -229,7 +229,7 @@ def make_windows(data: pd.DataFrame, window_sec: int=None, sample_rate: int=None
         Ys = []
     
     for _, w in data.resample(f"{window_sec}s", origin='start'):
-        if len(w) < window_sec * sample_rate:
+        if w.isna().any() or len(w) < window_sec * sample_rate:
             continue
         
         if len(annotation_cols) == 1:
@@ -242,10 +242,10 @@ def make_windows(data: pd.DataFrame, window_sec: int=None, sample_rate: int=None
             })
         elif len(annotation_cols) > 1:
             Ys.append({**{
-                'is_walk': w['annotation'].mode()
+                'is_walk': w['annotation'].mode(dropna=False).iloc[0]
                 },
                 **{
-                    label: w[label].mode()
+                    label: w[label].mode(dropna=False).iloc[0]
                 for label in annotation_cols.difference(['annotation'])}})
         
         xyz = w[accel_cols].to_numpy()
