@@ -60,9 +60,9 @@ def raw_to_df(data, labels, time, classes, label_proba=False, reindex=True, freq
         y = data[:, 1]
         z = data[:, 2]
 
-        # a = (np.sqrt(np.mean(np.abs(x)) ** 2 + np.mean(np.abs(y)) ** 2 + np.mean(np.abs(z)) ** 2) - 0.5) * 1000
-        a = (np.sqrt(np.mean(x ** 2) + np.mean(y ** 2) + np.mean(z ** 2)) - 1) * 1000
-        a_matrix[i] = a
+        enmo = (np.sqrt(x ** 2 + y ** 2 + z ** 2) - 1) * 1000  # in milli gravity
+        enmo[enmo < 0] = 0
+        a_matrix[i] = np.mean(enmo)
 
     if label_proba:
         datadict = {
