@@ -18,6 +18,7 @@ import pandas as pd
 import sklearn.metrics as metrics
 import seaborn as sns
 from glob import glob
+from pathlib import Path
 
 from torch.utils.data import DataLoader
 from omegaconf import OmegaConf
@@ -61,6 +62,9 @@ def score(name, current_pid, pid, x, y, y_pred, t, interval, hmm, hmm_learn, ste
     subject_t = subject_t[labelled_mask]
     subject_pred_hmm = subject_pred_hmm[labelled_mask]
     subject_pred_hmm_learn = subject_pred_hmm_learn[labelled_mask]
+
+    # Transform true test labels using label encoder
+    subject_true = utils.le.transform(subject_true)
 
     result = utils.classification_scores(subject_true, subject_pred)
     result_hmm = utils.classification_scores(subject_true, subject_pred_hmm)
@@ -301,7 +305,7 @@ def evaluate_folds(cfg, folds=None, stratify_scores=False):
                                         'Accuracy score'],
                                         font_size=16,
                                         height=30),
-                    cells=dict(values=[models.values(), 
+                    cells=dict(values=[list(models.values()), 
                                summary_scores['f1'],
                                summary_scores['kappa'],
                                summary_scores['accuracy']],
@@ -339,9 +343,7 @@ def evaluate_folds(cfg, folds=None, stratify_scores=False):
                                                 'OxWalk Accuracy score'],
                                                 font_size=16,
                                                 height=30),
-                            cells=dict(values=[['Random Forest (RF)', 'RF + HMM', 'RF + HMMLearn', 
-                                                'Self supervised ResNet 18 (SSL)', 
-                                                'SSL + HMM', 'SSL + HMMLearn'], 
+                            cells=dict(values=[list(models.values()), 
                                        summary_scores_stratified['f1_PD'],
                                        summary_scores_stratified['f1_OxWalk'],
                                        summary_scores_stratified['kappa_PD'],

@@ -1,6 +1,7 @@
 import pandas as pd
 from scipy import signal
 
+
 def check_for_time_values_error(Y, T, interval):
     # If truthy, T must be the same length as Y, and interval must also be truthy
     if T is not None:
@@ -8,6 +9,7 @@ def check_for_time_values_error(Y, T, interval):
             raise Exception('Provided times should have same length as labels')
         if not interval:
             raise Exception('A window length must be provided when using label times to train hmm')
+
 
 def restore_labels_after_gaps(y_pred, y_smooth, t, interval):
     # Restore unsmoothed predictions to labels following gaps in time

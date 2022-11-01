@@ -32,7 +32,7 @@ if __name__ == "__main__":
     cfg = OmegaConf.load("conf/config.yaml")
     log.info(str(OmegaConf.to_yaml(cfg)))
 
-    prepare_data(cfg, n_workers=cfg.num_workers, overwrite=cfg.data.overwrite)
+    prepare_data(cfg)
 
     for fold, fold_data in load_data(cfg).items():
         train_model(fold_data, cfg, str(fold))

@@ -123,9 +123,6 @@ def load_data(cfg, cv='GroupKFold'):
     log.info('Y shape: %s', y.shape)
     log.info('Label distribution:\n%s', pd.Series(y).value_counts())
 
-    # TODO: Manage transformation given missing data with label -1
-    #y = utils.le.transform(y)
-
     input_size = cfg.data.winsec * cfg.data.sample_rate
     if X.shape[1] == input_size:
         log.info("No need to downsample")
@@ -136,14 +133,15 @@ def load_data(cfg, cv='GroupKFold'):
         "f4"
     )  # PyTorch defaults to float32
 
+    # Generate train/validation/test splits
     if cv == 'GroupKFold':
         if len(np.unique(source))> 1:
-            # generate train/test splits
             # Stratify based on data source
             folds = StratifiedGroupKFold(
                 cfg.num_folds
             ).split(X, source, groups=pid)
         else:
+            # Stratify based on output label
             folds = StratifiedGroupKFold(
                 cfg.num_folds
             ).split(X, y, groups=pid)
@@ -155,13 +153,14 @@ def load_data(cfg, cv='GroupKFold'):
     return {fold: split_data(X, y, pid, time, train_idx, test_idx, fold) 
                 for fold, (train_idx, test_idx) in enumerate(folds)}
 
+
 def split_data(X, y, pid, time, train_idx, test_idx, fold):
     x_test = X[test_idx]
     y_test = y[test_idx]
     time_test = time[test_idx]
     group_test = pid[test_idx]
 
-    # further split train into train/val
+    # Further split train into train/val
     X = X[train_idx]
     y = y[train_idx]
     pid = pid[train_idx]
@@ -174,6 +173,9 @@ def split_data(X, y, pid, time, train_idx, test_idx, fold):
     y = y[lablled_mask]
     pid = pid[lablled_mask]
     time = time[lablled_mask]
+
+    # Transform training and validation labels to label encoder
+    y = utils.le.transform(y)
 
     folds = GroupShuffleSplit(
         1, test_size=0.125, random_state=41+fold
@@ -197,6 +199,7 @@ def split_data(X, y, pid, time, train_idx, test_idx, fold):
         x_val, y_val, group_val, time_val,
         x_test, y_test, group_test, time_test,
     )
+
 
 def get_inverse_class_weights(y):
     """ Return a list with inverse class frequencies in y """

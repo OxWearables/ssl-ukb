@@ -93,13 +93,13 @@ def resample(data: pd.DataFrame, sample_rate, annotation=None, dropna=False):
 
     return data_resampled
 
-def prepare_data(cfg, n_workers=-1, overwrite=True):
-    if overwrite or not os.path.exists(cfg.data.processed_data+"/config.txt"):
+def prepare_data(cfg):
+    if cfg.data.overwrite or not os.path.exists(cfg.data.processed_data+"/config.txt"):
         log.info("Processing raw data.")
         files = [(source, elem) for source in cfg.data.name.split(",") 
                                 for elem in glob("{}/{}/*.csv".format(cfg.data.raw_data, source))]
 
-        X, Ys, T = zip(*Parallel(n_jobs=n_workers)(
+        X, Ys, T = zip(*Parallel(n_jobs=cfg.num_workers)(
             delayed(prepare_participant_data)(filename, cfg.data.sample_rate, cfg.data.winsec, 
                                               cfg.data.step_threshold, data_source) 
                                                    for data_source, filename in tqdm(files)))
