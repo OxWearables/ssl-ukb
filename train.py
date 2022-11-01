@@ -116,31 +116,33 @@ def train_model(training_data, cfg, fold="0"):
         # RF training
         rfmodel = rf.get_rf(num_workers=cfg.num_workers)
 
-        log.info('Extract RF features')
-        x_feats = rf.extract_features(x_train_rf, sample_rate=cfg.data.sample_rate, num_workers=cfg.num_workers)
+        
+        if cfg.rf.overwrite or not os.path.exists(cfg.rf.path.format(fold)):
+            log.info('Extract RF features')
+            x_feats = rf.extract_features(x_train_rf, sample_rate=cfg.data.sample_rate, num_workers=cfg.num_workers)
 
-        log.info('Training RF')
-        rfmodel.fit(x_feats, y_train_rf)
-        joblib.dump(rfmodel, cfg.rf.path.format(fold))
-        log.info('RF saved to %s', cfg.rf.path.format(fold))
+            log.info('Training RF')
+            rfmodel.fit(x_feats, y_train_rf)
+            joblib.dump(rfmodel, cfg.rf.path.format(fold))
+            log.info('RF saved to %s', cfg.rf.path.format(fold))
 
-        # HMM training (RF)
-        log.info('Training RF-HMM')
-        hmm_rf = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
-        hmm_rf.train(rfmodel.oob_decision_function_, y_train_rf, time_train_rf, cfg.data.winsec)
-        hmm_rf.save(cfg.hmm.weights_rf.format(fold))
+            # HMM training (RF)
+            log.info('Training RF-HMM')
+            hmm_rf = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
+            hmm_rf.train(rfmodel.oob_decision_function_, y_train_rf, time_train_rf, cfg.data.winsec)
+            hmm_rf.save(cfg.hmm.weights_rf.format(fold))
 
-        log.info(hmm_rf)
-        log.info('RF-HMM saved to %s', cfg.hmm.weights_rf.format(fold))
+            log.info(hmm_rf)
+            log.info('RF-HMM saved to %s', cfg.hmm.weights_rf.format(fold))
 
-        # HMM Learn training (RF)
-        log.info('Training RF-HMM-Learn')
-        hmm_learn_rf = HMMLearn(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
-        hmm_learn_rf.train(rfmodel.oob_decision_function_, y_train_rf, time_train_rf, cfg.data.winsec)
-        hmm_learn_rf.save(cfg.hmm_learn.weights_rf.format(fold))
+            # HMM Learn training (RF)
+            log.info('Training RF-HMM-Learn')
+            hmm_learn_rf = HMMLearn(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
+            hmm_learn_rf.train(rfmodel.oob_decision_function_, y_train_rf, time_train_rf, cfg.data.winsec)
+            hmm_learn_rf.save(cfg.hmm_learn.weights_rf.format(fold))
 
-        log.info(hmm_learn_rf)
-        log.info('RF-HMM-Learn saved to %s', cfg.hmm_learn.weights_rf.format(fold))
+            log.info(hmm_learn_rf)
+            log.info('RF-HMM-Learn saved to %s', cfg.hmm_learn.weights_rf.format(fold))
 
 if __name__ == "__main__":
     np.random.seed(42)

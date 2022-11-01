@@ -13,8 +13,8 @@ ssl_repo_path:
 
 sslnet:
   enabled: true
-  weights: weights/state_dict_{}.pt
   overwrite: false
+  weights: weights/state_dict_{}.pt
   augmentation: true
   weighted_loss_fn: true
   learning_rate: 0.0001
@@ -24,6 +24,7 @@ sslnet:
 
 rf:
   enabled: true
+  overwrite: false
   path: weights/rf_{}.joblib
 
 hmm:
@@ -38,6 +39,7 @@ hmm_learn:
 
 data:
   name: OxWalk
+  overwrite: false
   data_root: /data
   raw_data: "${.data_root}/raw"
   processed_data: "${.data_root}/processed"
@@ -48,4 +50,3 @@ data:
   sample_rate: 30
   winsec: 10
   step_threshold: 4
-  
