@@ -47,6 +47,8 @@ data:
   Y_path: "${.processed_data}/Y_is_walk.npy"
   PID_path: "${.processed_data}/Y_pid.npy"
   time_path: "${.processed_data}/T.npy"
+  source_path: "${.processed_data}/Y_source.npy"
+  steps_path: "${.processed_data}/Y_steps.npy"
   sample_rate: 30
   winsec: 10
   step_threshold: 4
