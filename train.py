@@ -41,9 +41,9 @@ def train_model(training_data, cfg, fold="0"):
 
     # load training data
     (
-        x_train, y_train, group_train, time_train,
-        x_val, y_val, group_val, time_val,
-        _, _, _, _,
+        x_train, y_train, group_train, time_train, _,
+        x_val, y_val, group_val, time_val, _,
+        _, _, _, _, _,
     ) = training_data
 
     if cfg.sslnet.enabled:

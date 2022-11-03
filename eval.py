@@ -108,9 +108,9 @@ def evaluate_model(training_data, cfg, fold="0"):
     
     # load raw data
     (
-        _, _, _, _,
-        _, _, _, _,
-        x_test, y_test, group_test, time_test,
+        _, _, _, _, _,
+        _, _, _, _, _,
+        x_test, y_test, group_test, time_test, _,
     ) = training_data
 
     le = utils.le  # label encoder
@@ -118,12 +118,6 @@ def evaluate_model(training_data, cfg, fold="0"):
     # save performance scores and plots for every single subject
     my_pids = np.unique(group_test)
     plots = {}
-    #step_counter = StepCounter(window_sec=cfg.data.winsec,
-    #                           sample_rate=cfg.data.sample_rate,
-    #                           wd_params={'ssl_weights': cfg.sslnet.weights.format(fold),
-    #                                      'sample_rate': cfg.data.sample_rate,
-    #                                      'device': my_device,
-    #                                      'hmm_path': cfg.hmm.weights_ssl.format(fold)})
 
     if cfg.sslnet.enabled:
         # load pretrained SSL model
@@ -252,7 +246,13 @@ def evaluate_model(training_data, cfg, fold="0"):
 
         log.info('Confusion %s\n%s\n', title, matrix)
 
-def evaluate_folds(cfg, folds=None, stratify_scores=False):
+def evaluate_steps(x, y, steps, **kwargs):
+    x_walk = x[y==1]
+
+
+    return 0
+
+def evaluate_folds(cfg, scores = ['f1', 'kappa', 'accuracy'], folds=None, stratify_scores=False):
     folds = folds or cfg.num_folds
     summary_folder = cfg.output_path + '/Summary'
     Path(summary_folder).mkdir(parents=True, exist_ok=True)
@@ -278,7 +278,7 @@ def evaluate_folds(cfg, folds=None, stratify_scores=False):
 
     with open(summary_folder+"/config.txt", "w") as f:
         f.write(str({
-            'Data Source(s)': cfg.data.name,
+            'Data Source(s)': cfg.data.sources,
             'Sample Rate': "{}Hz".format(cfg.data.sample_rate),
             'Window Size': "{}s".format(cfg.data.winsec),
             'Step Walking Threshold': "{} step(s) per window".format(cfg.data.step_threshold),
@@ -289,67 +289,57 @@ def evaluate_folds(cfg, folds=None, stratify_scores=False):
     master_report.to_csv(summary_folder+'/master_report.csv')
 
     summary_scores = pd.DataFrame([{
-      'f1': '{:.3f} [\u00B1{:.3f}]'.format(master_report['f1_'+model].mean(), master_report['f1_'+model].std()), 
-      'kappa': '{:.3f} [\u00B1{:.3f}]'.format(master_report['kappa_'+model].mean(), master_report['kappa_'+model].std()),
-      'accuracy': '{:.3f} [\u00B1{:.3f}]'.format(master_report['accuracy_'+model].mean(), master_report['accuracy_'+model].std())} 
-      for model in models.keys()], index=models.keys())
+        score: '{:.3f} [\u00B1{:.3f}]'.format(master_report['{}_{}'.format(score, model)].mean(), 
+                                              master_report['{}_{}'.format(score, model)].std())
+            for score in scores} 
+        for model in models.keys()], index=models.keys())
 
     summary_scores.index.name='Model'
     summary_scores.to_csv(summary_folder+'/summary_scores.csv')
 
     fig = go.Figure(data=[go.Table(
                     columnwidth=[100, 40, 40, 40],
-                    header=dict(values=['Model', 
-                                        'F1 score', 
-                                        'Cohen\'s kappa score',
-                                        'Accuracy score'],
-                                        font_size=16,
-                                        height=30),
-                    cells=dict(values=[list(models.values()), 
-                               summary_scores['f1'],
-                               summary_scores['kappa'],
-                               summary_scores['accuracy']],
+                    header=dict(values=['Model'] + ["{} score".format(score.capitalize()) for score in scores],
+                                font_size=16,
+                                height=30),
+                    cells=dict(values=[list(models.values())] +
+                               [summary_scores[score] for score in scores],
                                font_size=16,
                                height=30))
-                 ])
+                    ])
     fig.write_image(summary_folder+'/modelPerformance.png', width=1200, height=400)
 
-    if stratify_scores:
-        master_report['PD'] = ['_' in lab for lab in master_report.index]
-        summary_scores_stratified = pd.DataFrame([{
-          'f1_PD': '{:.3f} [\u00B1{:.3f}]'.format(master_report.loc[master_report.PD, 'f1_'+model].mean(), 
-                                                  master_report.loc[master_report.PD, 'f1_'+model].std()),
-          'f1_OxWalk': '{:.3f} [\u00B1{:.3f}]'.format(master_report.loc[~master_report.PD, 'f1_'+model].mean(), 
-                                                      master_report.loc[~master_report.PD, 'f1_'+model].std()),
-          'kappa_PD': '{:.3f} [\u00B1{:.3f}]'.format(master_report.loc[master_report.PD, 'kappa_'+model].mean(), 
-                                                     master_report.loc[master_report.PD, 'kappa_'+model].std()),
-          'kappa_OxWalk': '{:.3f} [\u00B1{:.3f}]'.format(master_report.loc[~master_report.PD, 'kappa_'+model].mean(), 
-                                                         master_report.loc[~master_report.PD, 'kappa_'+model].std()),
-          'accuracy_PD': '{:.3f} [\u00B1{:.3f}]'.format(master_report.loc[master_report.PD, 'accuracy_'+model].mean(), 
-                                                        master_report.loc[master_report.PD, 'accuracy_'+model].std()),
-          'accuracy_OxWalk': '{:.3f} [\u00B1{:.3f}]'.format(master_report.loc[~master_report.PD, 'accuracy_'+model].mean(), 
-                                                            master_report.loc[~master_report.PD, 'accuracy_'+model].std())} 
-          for model in models])
-    
+    data_sources = cfg.data.sources
+    if stratify_scores and len(data_sources) > 1:
+        def str_lookup(string, reference):
+            for elem in reference:
+                if elem in string:
+                    return elem
+            return ""
+
+        master_report['source'] = [str_lookup(pid, data_sources) for pid in master_report.index]
+
+        summary_scores_stratified = pd.DataFrame([
+            {"{}_{}".format(score, source): 
+                "{:.3f} [\u00B1{:.3f}]".format(master_report.loc[master_report["source"]==source, 
+                                                                 "{}_{}".format(score, model)].mean(), 
+                                               master_report.loc[master_report["source"]==source, 
+                                                                 "{}_{}".format(score, model)].std()) 
+                for score in scores
+                    for source in data_sources}
+            for model in models])
+
         summary_scores_stratified.to_csv(summary_folder+'/summary_scores_stratified.csv')
     
         fig2 = go.Figure(data=[go.Table(
-                            header=dict(values=['Model', 
-                                                'MJFF-LR study F1 score',
-                                                'OxWalk study F1 score', 
-                                                'MJFF-LR Cohen\'s kappa score',
-                                                'OxWalk Cohen\'s kappa score',
-                                                'MJFF-LR Accuracy score',
-                                                'OxWalk Accuracy score'],
-                                                font_size=16,
-                                                height=30),
-                            cells=dict(values=[list(models.values()), 
-                                       summary_scores_stratified['f1_PD'],
-                                       summary_scores_stratified['f1_OxWalk'],
-                                       summary_scores_stratified['kappa_PD'],
-                                       summary_scores_stratified['kappa_OxWalk'],
-                                       summary_scores_stratified['accuracy_PD'],
-                                       summary_scores_stratified['accuracy_OxWalk']],
+                            header=dict(values=['Model']+
+                                               ["{} study {} score".format(source, score.capitalize()) 
+                                                    for score in scores for source in data_sources],
+                                        font_size=16,
+                                        height=30),
+                            cells=dict(values=[list(models.values())] +
+                                              [summary_scores_stratified["{}_{}".format(score, source)] 
+                                                for score in scores for source in data_sources],
                                        font_size=16,
                                        height=30))
                          ])

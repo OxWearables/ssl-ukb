@@ -117,7 +117,14 @@ def load_data(cfg, cv='GroupKFold'):
     y = np.load(cfg.data.Y_path)
     pid = np.load(cfg.data.PID_path, allow_pickle=True)  # participant IDs
     time = np.load(cfg.data.time_path, allow_pickle=True)
-    source = np.load(cfg.data.processed_data+'/Y_source.npy', allow_pickle=True)
+    steps = None
+
+    if cfg.data.source_path:
+        source = np.load(cfg.data.source_path, allow_pickle=True)
+        pid = source + '_' + pid
+
+    if cfg.data.steps_path:
+        steps = np.load(cfg.data.steps_path)
 
     log.info('X shape: %s', X.shape)
     log.info('Y shape: %s', y.shape)
@@ -150,15 +157,17 @@ def load_data(cfg, cv='GroupKFold'):
             cfg.num_folds, test_size=0.2, random_state=42
         ).split(X, y, groups=pid)
 
-    return {fold: split_data(X, y, pid, time, train_idx, test_idx, fold) 
+    return {fold: split_data(X, y, pid, time, train_idx, test_idx, steps, fold) 
                 for fold, (train_idx, test_idx) in enumerate(folds)}
 
 
-def split_data(X, y, pid, time, train_idx, test_idx, fold):
+def split_data(X, y, pid, time, train_idx, test_idx, steps=None, fold=0):
     x_test = X[test_idx]
     y_test = y[test_idx]
     time_test = time[test_idx]
     group_test = pid[test_idx]
+
+    steps_test = steps[test_idx] if steps is not None else None
 
     # Further split train into train/val
     X = X[train_idx]
@@ -166,13 +175,19 @@ def split_data(X, y, pid, time, train_idx, test_idx, fold):
     pid = pid[train_idx]
     time = time[train_idx]
 
+    if steps is not None:
+        steps = steps[train_idx]
+
     # Remove unlabelled training data identified with -1
-    lablled_mask = y != -1
+    labelled_mask = y != -1
     
-    X = X[lablled_mask]
-    y = y[lablled_mask]
-    pid = pid[lablled_mask]
-    time = time[lablled_mask]
+    X = X[labelled_mask]
+    y = y[labelled_mask]
+    pid = pid[labelled_mask]
+    time = time[labelled_mask]
+
+    if steps is not None:
+        steps = steps[labelled_mask]
 
     # Transform training and validation labels to label encoder
     y = utils.le.transform(y)
@@ -193,11 +208,14 @@ def split_data(X, y, pid, time, train_idx, test_idx, fold):
 
     group_train = pid[train_idx]
     group_val = pid[val_idx]
+    
+    steps_train = steps[train_idx] if steps is not None else None
+    steps_val = steps[val_idx] if steps is not None else None
 
     return (
-        x_train, y_train, group_train, time_train,
-        x_val, y_val, group_val, time_val,
-        x_test, y_test, group_test, time_test,
+        x_train, y_train, group_train, time_train, steps_train,
+        x_val, y_val, group_val, time_val, steps_val,
+        x_test, y_test, group_test, time_test, steps_test
     )
 
 

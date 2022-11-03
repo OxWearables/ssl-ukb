@@ -38,7 +38,7 @@ hmm_learn:
   uniform_prior: true
 
 data:
-  name: OxWalk
+  name: [OxWalk]
   overwrite: false
   data_root: /data
   raw_data: "${.data_root}/raw"

@@ -140,13 +140,13 @@ if __name__ == '__main__':
 
     dataloader = DataLoader(
         dataset,
-        batch_size=120,
+        batch_size=cfg.sslnet.batch_size,
         shuffle=False,
         num_workers=0,
     )
 
     # load pretrained SSL model
-    # TODO: Do not run inference on only first trained model
+    # Note: Inference is run only first trained model
     sslnet = ssl.get_sslnet(my_device, cfg.ssl_repo_path, cfg.sslnet.weights.format(0))
 
     # load pretrained HMM
