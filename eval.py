@@ -12,17 +12,14 @@ import joblib
 import torch
 import numpy as np
 import os
-import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import pandas as pd
-import sklearn.metrics as metrics
-import seaborn as sns
 from glob import glob
 from pathlib import Path
+from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
 
 from torch.utils.data import DataLoader
 from omegaconf import OmegaConf
-from accelerometer.accPlot import plotTimeSeries
 from tqdm import tqdm
 from joblib import Parallel, delayed
 from imblearn.ensemble import BalancedRandomForestClassifier
@@ -30,7 +27,7 @@ from models.hmm_learn import HMMLearn
 
 # own module imports
 import utils.utils as utils
-#from models.step_count import StepCounter
+from models.peak_count import PeakCounter
 import models.sslnet as ssl
 import models.rf as rf
 from models.hmm import HMM
@@ -38,16 +35,16 @@ from utils.data import NormalDataset, load_data
 
 log = utils.get_logger()
 
-def score(name, current_pid, pid, x, y, y_pred, t, interval, hmm, hmm_learn, step_counter, classes, plotData=False):
-    subject_mask = current_pid == pid
 
-    subject_true = y[subject_mask]
-    subject_pred = y_pred[subject_mask]
+def score(x, y_true, y_pred, steps, groups, current_pid, t, interval,
+          hmm, hmm_learn, peak_counter, hmm_peak_counter, hmm_learn_peak_counter):
+    subject_mask = groups == current_pid
+    
     subject_x = x[subject_mask]
+    subject_true = y_true[subject_mask]
+    subject_pred = y_pred[subject_mask]
     subject_t = t[subject_mask]
-
-    #steps = step_counter.predict(x[subject_filter]).sum()
-    steps=0
+    steps = steps[subject_mask]
 
     # Smooth the label predictions using HMM smoothing
     subject_pred_hmm = hmm.predict(subject_pred, subject_t, interval)
@@ -66,39 +63,22 @@ def score(name, current_pid, pid, x, y, y_pred, t, interval, hmm, hmm_learn, ste
     # Transform true test labels using label encoder
     subject_true = utils.le.transform(subject_true)
 
+    # Calculate performance of walking frame detection
     result = utils.classification_scores(subject_true, subject_pred)
     result_hmm = utils.classification_scores(subject_true, subject_pred_hmm)
     result_hmm_learn = utils.classification_scores(subject_true, subject_pred_hmm_learn)
-
-    cmatrix = metrics.confusion_matrix(subject_true, subject_pred, labels=utils.classes)
-    cmatrix_hmm = metrics.confusion_matrix(subject_true, subject_pred_hmm, labels=utils.classes)
-    cmatrix_hmm_learn = metrics.confusion_matrix(subject_true, subject_pred_hmm_learn, labels=utils.classes)
-
-    # plot subject predictions
-    df_true = utils.raw_to_df(subject_x, subject_true, subject_t, classes)
-    df_pred = utils.raw_to_df(subject_x, subject_pred, subject_t, classes)
-    df_pred_hmm = utils.raw_to_df(subject_x, subject_pred_hmm, subject_t, classes)
-    df_pred_hmm_learn = utils.raw_to_df(subject_x, subject_pred_hmm_learn, subject_t, classes)
-
-    if plotData:
-        fig = plotTimeSeries(df_true)
-        fig.savefig('plots/{pid}_true.png'.format(pid=current_pid), dpi=200)
-        plt.close()
-
-        fig = plotTimeSeries(df_pred)
-        fig.savefig('plots/{pid}_{model}_pred.png'.format(pid=current_pid, model=name), dpi=200)
-        plt.close()
-
-        fig = plotTimeSeries(df_pred_hmm)
-        fig.savefig('plots/{pid}_{model}_pred_hmm.png'.format(pid=current_pid, model=name), dpi=200)
-        plt.close()
-
-        fig = plotTimeSeries(df_pred_hmm_learn)
-        fig.savefig('plots/{pid}_{model}_pred_hmm_learn.png'.format(pid=current_pid, model=name), dpi=200)
-        plt.close()
-
-    return result, result_hmm, result_hmm_learn, cmatrix, cmatrix_hmm, cmatrix_hmm_learn, steps, current_pid
     
+    # Count the number of peaks for the predicted walking windows as step count
+    step_counts = {'pid': current_pid,
+                   'step_tot_true': steps.sum(),
+                   'step_tot_pred': peak_counter.predict(subject_x, subject_pred),
+                   'step_tot_pred_hmm': hmm_peak_counter.predict(subject_x, subject_pred_hmm),
+                   'step_tot_pred_hmm_learn': hmm_learn_peak_counter.predict(subject_x, subject_pred_hmm_learn)
+                  }
+
+    return result, result_hmm, result_hmm_learn, step_counts, current_pid
+
+
 def evaluate_model(training_data, cfg, fold="0"):
     GPU = cfg.gpu
     if GPU != -1:
@@ -110,22 +90,29 @@ def evaluate_model(training_data, cfg, fold="0"):
     (
         _, _, _, _, _,
         _, _, _, _, _,
-        x_test, y_test, group_test, time_test, _,
+        x_test, y_test, group_test, time_test, steps_test,
     ) = training_data
-
-    le = utils.le  # label encoder
 
     # save performance scores and plots for every single subject
     my_pids = np.unique(group_test)
-    plots = {}
 
     if cfg.sslnet.enabled:
         # load pretrained SSL model
         sslnet = ssl.get_sslnet(my_device, cfg.ssl_repo_path, cfg.sslnet.weights.format(fold))
+
         hmm_ssl = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
         hmm_ssl.load(cfg.hmm.weights_ssl.format(fold))
+
         hmm_learn_ssl = HMMLearn(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
         hmm_learn_ssl.load(cfg.hmm_learn.weights_ssl.format(fold))
+
+        # Load peak counters used to count steps
+        peak_counter = PeakCounter(cfg.data.winsec, cfg.data.sample_rate)
+        peak_counter.load(cfg.peak_counter.weights_ssl.format('ssl', fold))
+        peak_counter_hmm = PeakCounter(cfg.data.winsec, cfg.data.sample_rate)
+        peak_counter_hmm.load(cfg.peak_counter.weights_ssl.format('ssl_hmm', fold))
+        peak_counter_hmm_learn = PeakCounter(cfg.data.winsec, cfg.data.sample_rate)
+        peak_counter_hmm_learn.load(cfg.peak_counter.weights_ssl.format('ssl_hmm_learn', fold))
  
         # SSL data loader
         test_dataset = NormalDataset(x_test, y_test, pid=group_test, name="test", is_labelled=True)
@@ -139,17 +126,18 @@ def evaluate_model(training_data, cfg, fold="0"):
 
         # get test predictions
         log.info('Get SSL test predictions')
-        y_test, y_test_pred, pid_test = ssl.predict(
+        y_test, y_test_pred, _ = ssl.predict(
             sslnet, test_loader, my_device, output_logits=False
         )
 
         log.info('Process results')
         # Use joblib lazy parallel cause plotting is slow
         # SSL results
-        results, results_hmm, result_hmm_learn, cmatrix, cmatrix_hmm, cmatrix_hmm_learn, step_tot, subjects = \
+        results, results_hmm, result_hmm_learn, step_counts, subjects = \
             zip(*Parallel(n_jobs=cfg.num_workers)(
-                delayed(score)('SSL', current_pid, group_test, x_test, y_test, y_test_pred, 
-                               time_test, cfg.data.winsec, hmm_ssl, hmm_learn_ssl, {}, le.classes_)
+                delayed(score)(x_test, y_test, y_test_pred, steps_test, group_test, current_pid,  
+                               time_test, cfg.data.winsec, hmm_ssl, hmm_learn_ssl, peak_counter,
+                               peak_counter_hmm, peak_counter_hmm_learn)
                 for current_pid in tqdm(my_pids)
             ))
 
@@ -157,18 +145,8 @@ def evaluate_model(training_data, cfg, fold="0"):
         results_hmm = np.array(results_hmm)
         result_hmm_learn = np.array(result_hmm_learn)
 
-        cmatrix = pd.DataFrame(np.sum(cmatrix, axis=0), index=le.classes_, columns=le.classes_)
-        cmatrix_hmm = pd.DataFrame(np.sum(cmatrix_hmm, axis=0), index=le.classes_, columns=le.classes_)
-        cmatrix_hmm_learn = pd.DataFrame(np.sum(cmatrix_hmm_learn, axis=0), index=le.classes_, columns=le.classes_)
-
-        step_df = pd.DataFrame({'pid': my_pids, 'tot_steps': step_tot})
-        step_df.to_csv('{}/steps_{}.csv'.format(cfg.output_path, fold))
-
-        plots = {**plots, **{
-            'matrix_ssl': cmatrix,
-            'matrix_ssl_hmm': cmatrix_hmm,
-            'matrix_ssl_hmm_learn': cmatrix_hmm_learn
-        }}
+        step_df = pd.DataFrame(step_counts)
+        step_df.to_csv('{}/steps_ssl_{}.csv'.format(cfg.output_path, fold), index=False)
         
         # save SSL reports
         dfr = utils.classification_report(results, subjects, 
@@ -186,10 +164,20 @@ def evaluate_model(training_data, cfg, fold="0"):
         # load pretrained RF
         rfmodel: BalancedRandomForestClassifier = joblib.load(cfg.rf.path.format(fold))
         log.info('Loaded RF from %s', cfg.rf.path.format(fold))
+        
         hmm_rf = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
         hmm_rf.load(cfg.hmm.weights_rf.format(fold))
+        
         hmm_learn_rf = HMMLearn(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
         hmm_learn_rf.load(cfg.hmm_learn.weights_rf.format(fold))
+
+        # Load peak counters used to count steps
+        peak_counter = PeakCounter(cfg.data.winsec, cfg.data.sample_rate)
+        peak_counter.load(cfg.peak_counter.weights_rf.format('rf', fold))
+        peak_counter_hmm = PeakCounter(cfg.data.winsec, cfg.data.sample_rate)
+        peak_counter_hmm.load(cfg.peak_counter.weights_rf.format('rf_hmm', fold))
+        peak_counter_hmm_learn = PeakCounter(cfg.data.winsec, cfg.data.sample_rate)
+        peak_counter_hmm_learn.load(cfg.peak_counter.weights_rf.format('rf_hmm_learn', fold))
 
         log.info('Extract RF features')
         x_feats = rf.extract_features(x_test, sample_rate=cfg.data.sample_rate, num_workers=cfg.num_workers)
@@ -198,27 +186,20 @@ def evaluate_model(training_data, cfg, fold="0"):
         y_test_pred_rf = np.array(rfmodel.predict(x_feats), dtype='i')
 
         # RF results
-        results_rf, results_hmm_rf, results_hmm_learn_rf, cmatrix_rf, cmatrix_hmm_rf, cmatrix_hmm_learn_rf, step_tot, subjects = \
+        results_rf, results_hmm_rf, results_hmm_learn_rf, step_counts, subjects = \
             zip(*Parallel(n_jobs=cfg.num_workers)(
-                delayed(score)('RF', current_pid, group_test, x_test, y_test, y_test_pred_rf, 
-                               time_test, cfg.data.winsec, hmm_rf, hmm_learn_rf, {}, le.classes_)
-            for current_pid in tqdm(my_pids)
+                delayed(score)(x_test, y_test, y_test_pred_rf, steps_test, group_test, current_pid,  
+                               time_test, cfg.data.winsec, hmm_rf, hmm_learn_rf,  peak_counter,
+                               peak_counter_hmm, peak_counter_hmm_learn)
+                for current_pid in tqdm(my_pids)
             ))
 
         results_rf = np.array(results_rf)
         results_hmm_rf = np.array(results_hmm_rf)
         results_hmm_learn_rf = np.array(results_hmm_learn_rf)
 
-        cmatrix_rf = pd.DataFrame(np.sum(cmatrix_rf, axis=0), index=le.classes_, columns=le.classes_)
-        cmatrix_hmm_rf = pd.DataFrame(np.sum(cmatrix_hmm_rf, axis=0), index=le.classes_, columns=le.classes_)
-        cmatrix_hmm_learn_rf = pd.DataFrame(np.sum(cmatrix_hmm_learn_rf, axis=0), index=le.classes_, columns=le.classes_)
-
-        # confusion matrix plots
-        plots = {**plots, **{
-            'matrix_rf': cmatrix_rf,
-            'matrix_rf_hmm': cmatrix_hmm_rf,
-            'matrix_rf_hmm_learn': cmatrix_hmm_learn_rf
-        }}
+        step_df = pd.DataFrame(step_counts)
+        step_df.to_csv('{}/steps_rf_{}.csv'.format(cfg.output_path, fold), index=False)
 
         # save RF reports
         dfr_rf = utils.classification_report(results_rf, subjects, os.path.join(cfg.output_path, 
@@ -231,29 +212,10 @@ def evaluate_model(training_data, cfg, fold="0"):
         log.info('Results RF:\n%s', dfr_rf.mean())
         log.info('Results RF-HMM:\n%s', dfr_hmm_rf.mean())
         log.info('Results RF-HMM-Learn:\n%s', dfr_hmm_learn_rf.mean())
-    
-    for title in plots:
-        matrix: pd.DataFrame = plots[title]
-        matrix = matrix.div(matrix.sum(axis=1), axis=0).round(2)  # normalise
-        plt.figure()
-        sns.heatmap(matrix, annot=True, vmin=0, vmax=1)
-        plt.title(title)
-        plt.xticks(rotation=40, ha='right')
-        # plt.ylabel('true', rotation=0), plt.xlabel('predicted')
-        plt.tight_layout()
-        plt.savefig('plots/{title}.png'.format(title=title), dpi=200)
-        plt.close()
 
-        log.info('Confusion %s\n%s\n', title, matrix)
-
-def evaluate_steps(x, y, steps, **kwargs):
-    x_walk = x[y==1]
-
-
-    return 0
 
 def evaluate_folds(cfg, scores = ['f1', 'kappa', 'accuracy'], folds=None, stratify_scores=False):
-    folds = folds or cfg.num_folds
+    folds = folds or 1
     summary_folder = cfg.output_path + '/Summary'
     Path(summary_folder).mkdir(parents=True, exist_ok=True)
 
@@ -267,6 +229,8 @@ def evaluate_folds(cfg, scores = ['f1', 'kappa', 'accuracy'], folds=None, strati
         models.update({'ssl': 'Self supervised ResNet 18 (SSL)', 
                        'ssl_hmm': 'SSL + Hidden Markov Model', 
                        'ssl_hmm_learn': 'SSL + Unsupervised Hidden Markov Model'})
+    
+    base_models = [model for model in models.keys() if 'hmm' not in model]
 
     master_report = pd.concat([
         pd.concat([pd.read_csv('{}/report_{}_{}.csv'.format(cfg.output_path, model, fold), 
@@ -308,6 +272,29 @@ def evaluate_folds(cfg, scores = ['f1', 'kappa', 'accuracy'], folds=None, strati
                                height=30))
                     ])
     fig.write_image(summary_folder+'/modelPerformance.png', width=1200, height=400)
+   
+    steps_report = pd.concat([
+        pd.concat([pd.read_csv('{}/steps_{}_{}.csv'.format('outputs', model, fold), 
+                               index_col=[0]) 
+                    for fold in range(folds)]).add_suffix('_'+model)
+                        for model in base_models], axis=1).dropna()
+    
+    steps_report.index.name = 'Participant'
+    steps_report['step_tot_true'] = steps_report['step_tot_true_'+base_models[0]]
+    steps_report.drop(columns=['step_tot_true_'+model for model in base_models], inplace=True)
+    steps_report.to_csv(summary_folder+'/steps_report.csv')
+    
+    model_cols = [col for col in steps_report if col != 'step_tot_true']
+
+    steps_summary = pd.DataFrame([{
+        'mae': mean_absolute_error(steps_report['step_tot_true'], steps_report[model_col]),
+        'mape': mean_absolute_percentage_error(steps_report['step_tot_true'], steps_report[model_col]),
+        'rmse': int(mean_squared_error(steps_report['step_tot_true'], steps_report[model_col], squared=False)),
+    } 
+        for model_col in model_cols], index=models.keys())
+
+    steps_summary.index.name='Model'
+    steps_summary.to_csv(summary_folder+'/steps_summary.csv')
 
     data_sources = cfg.data.sources
     if stratify_scores and len(data_sources) > 1:
@@ -357,3 +344,4 @@ if __name__ == '__main__':
     log.info(str(OmegaConf.to_yaml(cfg)))
 
     evaluate_model(load_data(cfg)[0], cfg)
+    #evaluate_folds(cfg, folds=cfg.training.num_folds)

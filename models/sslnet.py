@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
-
+import os
 from tqdm import tqdm
 
 import utils.utils as utils
@@ -44,8 +44,10 @@ class EarlyStopping:
         self.early_stop = False
         self.val_loss_min = np.Inf
         self.delta = delta
-        self.path = path
         self.trace_func = trace_func
+        
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        self.path = path
 
     def __call__(self, val_loss, model):
 
@@ -163,7 +165,8 @@ def predict(model, data_loader, my_device, output_logits=False):
         )
 
 
-def train(model, train_loader, val_loader, cfg, my_device, weights, fold="0"):
+def train(model, train_loader, val_loader, cfg, my_device, weights, 
+            weights_path):
     """
     Iterate over the training dataloader and train a pytorch model.
     After each epoch, validate model and early stop when validation loss function bottoms out.
@@ -188,7 +191,7 @@ def train(model, train_loader, val_loader, cfg, my_device, weights, fold="0"):
         loss_fn = nn.CrossEntropyLoss()
 
     early_stopping = EarlyStopping(
-        patience=cfg.sslnet.patience, path=cfg.sslnet.weights.format(fold), verbose=True, trace_func=log.info
+        patience=cfg.sslnet.patience, path=weights_path, verbose=True, trace_func=log.info
     )
 
     for epoch in range(cfg.sslnet.num_epoch):
@@ -230,7 +233,7 @@ def train(model, train_loader, val_loader, cfg, my_device, weights, fold="0"):
 
         if early_stopping.early_stop:
             log.info('Early stopping')
-            log.info('SSLNet weights saved to %s', cfg.sslnet.weights.format(fold))
+            log.info('SSLNet weights saved to %s', weights_path)
             break
 
     return model

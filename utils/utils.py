@@ -104,23 +104,23 @@ def ukb_df_to_series(df: pd.DataFrame, label_col: str):
     return df
 
 
-def classification_scores(y_test, y_test_pred):
+def classification_scores(y_true, y_pred):
     import sklearn.metrics as metrics
 
-    cohen_kappa = metrics.cohen_kappa_score(y_test, y_test_pred)
+    cohen_kappa = metrics.cohen_kappa_score(y_true, y_pred)
     precision = metrics.precision_score(
-        y_test, y_test_pred, average="binary", zero_division=1
+        y_true, y_pred, average="binary", zero_division=1
     )
     recall = metrics.recall_score(
-        y_test, y_test_pred, average="binary", zero_division=1
+        y_true, y_pred, average="binary", zero_division=1
     )
     f1 = metrics.f1_score(
-        y_test, y_test_pred, average="binary", zero_division=1
+        y_true, y_pred, average="binary", zero_division=1
     )
-    accuracy = metrics.accuracy_score(y_test, y_test_pred)
+    accuracy = metrics.accuracy_score(y_true, y_pred)
 
     return cohen_kappa, precision, recall, f1, accuracy
-
+    
 
 def save_report(subjects, precision_list, recall_list, f1_list, cohen_kappa_list, accuracy_list, report_path):
     log = get_logger()
