@@ -1,5 +1,6 @@
 import numpy as np
 import hmmlearn.hmm as hmm
+import os
 from models.utils import check_for_time_values_error, restore_labels_after_gaps, calculate_transition_matrix
 
 class HMMLearn:
@@ -67,6 +68,7 @@ class HMMLearn:
 
         :param str path: npz file location
         """
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         np.savez(path,
                  prior=self.prior, emission=self.emission,
                  transition=self.transition, labels=self.labels)

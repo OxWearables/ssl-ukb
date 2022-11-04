@@ -10,7 +10,7 @@ import pandas as pd
 from torch.utils.data.dataset import Dataset
 from transforms3d.axangles import axangle2mat
 from torchvision import transforms
-from sklearn.model_selection import GroupShuffleSplit, StratifiedGroupKFold
+from sklearn.model_selection import GroupShuffleSplit, StratifiedGroupKFold, LeaveOneGroupOut
 
 import utils.utils as utils
 
@@ -112,12 +112,13 @@ class NormalDataset(Dataset):
         return sample, y, pid
 
 
-def load_data(cfg, cv='GroupKFold'):
+def load_data(cfg):
     X = np.load(cfg.data.X_path, mmap_mode='r')
     y = np.load(cfg.data.Y_path)
     pid = np.load(cfg.data.PID_path, allow_pickle=True)  # participant IDs
     time = np.load(cfg.data.time_path, allow_pickle=True)
     steps = None
+    source = None
 
     if cfg.data.source_path:
         source = np.load(cfg.data.source_path, allow_pickle=True)
@@ -141,27 +142,31 @@ def load_data(cfg, cv='GroupKFold'):
     )  # PyTorch defaults to float32
 
     # Generate train/validation/test splits
-    if cv == 'GroupKFold':
-        if len(np.unique(source))> 1:
+    cv_type = cfg.training.cv_type
+    
+    if cv_type == 'GroupKFold':
+        if source is not None and len(np.unique(source)) > 1:
             # Stratify based on data source
             folds = StratifiedGroupKFold(
-                cfg.num_folds
+                cfg.training.num_folds
             ).split(X, source, groups=pid)
         else:
             # Stratify based on output label
             folds = StratifiedGroupKFold(
-                cfg.num_folds
+                cfg.training.num_folds
             ).split(X, y, groups=pid)
+    elif cv_type == 'LeaveOneGroupOut':
+        folds = LeaveOneGroupOut().split(X, y, groups=pid)        
     else:
         folds = GroupShuffleSplit(
-            cfg.num_folds, test_size=0.2, random_state=42
+            cfg.training.num_folds, test_size=0.2, random_state=42
         ).split(X, y, groups=pid)
 
-    return {fold: split_data(X, y, pid, time, train_idx, test_idx, steps, fold) 
+    return {fold: split_data(X, y, pid, time, train_idx, test_idx, source, steps, cfg.training.val_split, fold) 
                 for fold, (train_idx, test_idx) in enumerate(folds)}
 
 
-def split_data(X, y, pid, time, train_idx, test_idx, steps=None, fold=0):
+def split_data(X, y, pid, time, train_idx, test_idx, source=None, steps=None, val_split=0.125, fold=0):
     x_test = X[test_idx]
     y_test = y[test_idx]
     time_test = time[test_idx]
@@ -178,6 +183,9 @@ def split_data(X, y, pid, time, train_idx, test_idx, steps=None, fold=0):
     if steps is not None:
         steps = steps[train_idx]
 
+    if source is not None:
+        source = source[train_idx]
+
     # Remove unlabelled training data identified with -1
     labelled_mask = y != -1
     
@@ -189,12 +197,20 @@ def split_data(X, y, pid, time, train_idx, test_idx, steps=None, fold=0):
     if steps is not None:
         steps = steps[labelled_mask]
 
+    if source is not None:
+        source = source[labelled_mask]
+
     # Transform training and validation labels to label encoder
     y = utils.le.transform(y)
 
-    folds = GroupShuffleSplit(
-        1, test_size=0.125, random_state=41+fold
-    ).split(X, y, groups=pid)
+    if source is None:
+        folds = GroupShuffleSplit(
+            1, test_size=val_split, random_state=41+fold
+        ).split(X, y, groups=pid)
+    else:
+        folds = StratifiedGroupKFold(
+            int(1/val_split), shuffle=True, random_state=41+fold
+        ).split(X, source, groups=pid)
     train_idx, val_idx = next(folds)
 
     x_train = X[train_idx]

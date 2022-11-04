@@ -28,6 +28,7 @@ import models.sslnet as ssl
 import models.rf as rf
 from models.hmm import HMM
 from models.hmm_learn import HMMLearn
+from models.peak_count import PeakCounter
 from utils.data import NormalDataset, load_data, get_inverse_class_weights
 
 log = utils.get_logger()
@@ -41,8 +42,8 @@ def train_model(training_data, cfg, fold="0"):
 
     # load training data
     (
-        x_train, y_train, group_train, time_train, _,
-        x_val, y_val, group_val, time_val, _,
+        x_train, y_train, group_train, time_train, steps_train,
+        x_val, y_val, group_val, time_val, steps_val,
         _, _, _, _, _,
     ) = training_data
 
@@ -53,84 +54,120 @@ def train_model(training_data, cfg, fold="0"):
         if cfg.multi_gpu:
             sslnet = torch.nn.DataParallel(sslnet, output_device=my_device, device_ids=cfg.gpu_ids)
         
-        # SSLNet training
-        # construct train and validation dataloaders
-        train_dataset = NormalDataset(x_train, y_train, name="train", is_labelled=True, transform=cfg.sslnet.augmentation)
-        val_dataset = NormalDataset(x_val, y_val, name="val", is_labelled=True)
-
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=cfg.sslnet.batch_size,
-            shuffle=True,
-            num_workers=2,
-        )
-
-        val_loader = DataLoader(
-            val_dataset,
-            batch_size=cfg.sslnet.batch_size,
-            shuffle=False,
-            num_workers=0,
-        )
-
         if cfg.sslnet.overwrite or not os.path.exists(cfg.sslnet.weights.format(fold)):
+            # SSLNet training
+            # construct train and validation dataloaders
+            train_dataset = NormalDataset(x_train, y_train, name="train", is_labelled=True, transform=cfg.sslnet.augmentation)
+            val_dataset = NormalDataset(x_val, y_val, name="val", is_labelled=True)
+
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=cfg.sslnet.batch_size,
+                shuffle=True,
+                num_workers=2,
+            )
+
+            val_loader = DataLoader(
+                val_dataset,
+                batch_size=cfg.sslnet.batch_size,
+                shuffle=False,
+                num_workers=0,
+            )
+
             log.info('SSLNet training')
-            ssl.train(sslnet, train_loader, val_loader, cfg, my_device, get_inverse_class_weights(y_train), fold)
+            ssl.train(sslnet, train_loader, val_loader, cfg, my_device, get_inverse_class_weights(y_train), 
+                        cfg.sslnet.weights.format(fold))
 
-        # load trained SSLNet weights (best weights prior to early-stopping)
-        model_dict = torch.load(cfg.sslnet.weights.format(fold), map_location=my_device)
+            # load trained SSLNet weights (best weights prior to early-stopping)
+            model_dict = torch.load(cfg.sslnet.weights.format(fold), map_location=my_device)
 
-        if cfg.multi_gpu:
-            sslnet.module.load_state_dict(model_dict)
-        else:
-            sslnet.load_state_dict(model_dict)
+            if cfg.multi_gpu:
+                sslnet.module.load_state_dict(model_dict)
+            else:
+                sslnet.load_state_dict(model_dict)
 
-        # HMM training (SSL)
-        log.info('Training SSL-HMM')
-        log.info('Getting SSLNet validation predictions')
-        y_val, y_val_pred, pid_val = ssl.predict(
-            sslnet, val_loader, my_device, output_logits=True
-        )
+            # HMM training (SSL)
+            log.info('Training SSL-HMM')
+            log.info('Getting SSLNet validation predictions')
+            y_val, y_val_pred, _ = ssl.predict(
+                sslnet, val_loader, my_device, output_logits=True
+            )
 
-        # softmax logits
-        y_val_pred_sf = softmax(y_val_pred, axis=1)
+            # softmax logits
+            y_val_pred_sf = softmax(y_val_pred, axis=1)
+            
+            y_val_pred = np.argmax(y_val_pred_sf, axis=1)
 
-        hmm_ssl = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
-        hmm_ssl.train(y_val_pred_sf, y_val, time_val, cfg.data.winsec)
-        hmm_ssl.save(cfg.hmm.weights_ssl.format(fold))
+            hmm_ssl = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
+            hmm_ssl.train(y_val_pred_sf, y_val, time_val, cfg.data.winsec)
+            hmm_ssl.save(cfg.hmm.weights_ssl.format(fold))
 
-        log.info(hmm_ssl)
-        log.info('SSL-HMM saved to %s', cfg.hmm.weights_ssl.format(fold))
+            y_val_pred_hmm = hmm_ssl.predict(y_val_pred, time_val, cfg.data.winsec)
 
-        hmm_learn_ssl = HMMLearn(utils.classes, uniform_prior=cfg.hmm_learn.uniform_prior)
-        hmm_learn_ssl.train(y_val_pred_sf, y_val, time_val, cfg.data.winsec)
-        hmm_learn_ssl.save(cfg.hmm_learn.weights_ssl.format(fold))
+            log.info(hmm_ssl)
+            log.info('SSL-HMM saved to %s', cfg.hmm.weights_ssl.format(fold))
 
-        log.info(hmm_learn_ssl)
-        log.info('SSL-HMM-Learn saved to %s', cfg.hmm_learn.weights_ssl.format(fold))
+            hmm_learn_ssl = HMMLearn(utils.classes, uniform_prior=cfg.hmm_learn.uniform_prior)
+            hmm_learn_ssl.train(y_val_pred_sf, y_val, time_val, cfg.data.winsec)
+            hmm_learn_ssl.save(cfg.hmm_learn.weights_ssl.format(fold))
+
+            y_val_pred_hmm_learn = hmm_learn_ssl.predict(y_val_pred, time_val, cfg.data.winsec)
+
+            log.info(hmm_learn_ssl)
+            log.info('SSL-HMM-Learn saved to %s', cfg.hmm_learn.weights_ssl.format(fold))
+
+            if (cfg.peak_counter.enabled):
+                if (cfg.peak_counter.overwrite or not 
+                        os.path.exists(cfg.peak_counter.weights_ssl.format("ssl", fold))):
+                    peak_counter = PeakCounter(cfg.data.winsec, cfg.data.sample_rate)
+                    peak_counter.train(x_val, y_val_pred, steps_val, group_val)
+                    peak_counter.save(cfg.peak_counter.weights_ssl.format("ssl", fold))
+                
+                if (cfg.peak_counter.overwrite or not 
+                        os.path.exists(cfg.peak_counter.weights_ssl.format("ssl_hmm", fold))):
+                    peak_counter = PeakCounter(cfg.data.winsec, cfg.data.sample_rate)
+                    peak_counter.train(x_val, y_val_pred_hmm, steps_val, group_val)
+                    peak_counter.save(cfg.peak_counter.weights_ssl.format("ssl_hmm", fold))
+                              
+                if (cfg.peak_counter.overwrite or not 
+                        os.path.exists(cfg.peak_counter.weights_ssl.format("ssl_hmm_learn", fold))):
+                    peak_counter = PeakCounter(cfg.data.winsec, cfg.data.sample_rate)
+                    peak_counter.train(x_val, y_val_pred_hmm_learn, steps_val, group_val)
+                    peak_counter.save(cfg.peak_counter.weights_ssl.format("ssl_hmm_learn", fold))
+
+                log.info('SSL step counters saved to %s', os.path.dirname(cfg.peak_counter.weights_ssl))
 
     if cfg.rf.enabled:
         x_train_rf = np.concatenate((x_train, x_val))
         y_train_rf = np.concatenate((y_train, y_val))
         time_train_rf = np.concatenate((time_train, time_val))
+        group_train_rf = np.concatenate((group_train, group_val))
+        steps_train_rf = np.concatenate((steps_train, steps_val))
 
         # RF training
         rfmodel = rf.get_rf(num_workers=cfg.num_workers)
 
-        
         if cfg.rf.overwrite or not os.path.exists(cfg.rf.path.format(fold)):
             log.info('Extract RF features')
             x_feats = rf.extract_features(x_train_rf, sample_rate=cfg.data.sample_rate, num_workers=cfg.num_workers)
 
             log.info('Training RF')
             rfmodel.fit(x_feats, y_train_rf)
+            
+            os.makedirs(os.path.dirname(cfg.rf.path.format(fold)), exist_ok=True)
             joblib.dump(rfmodel, cfg.rf.path.format(fold))
             log.info('RF saved to %s', cfg.rf.path.format(fold))
+
+            y_train_pred_sf = rfmodel.oob_decision_function_
+            y_train_pred_rf = np.argmax(y_train_pred_sf, axis=1)
 
             # HMM training (RF)
             log.info('Training RF-HMM')
             hmm_rf = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
-            hmm_rf.train(rfmodel.oob_decision_function_, y_train_rf, time_train_rf, cfg.data.winsec)
+            hmm_rf.train(y_train_pred_sf, y_train_rf, time_train_rf, cfg.data.winsec)
             hmm_rf.save(cfg.hmm.weights_rf.format(fold))
+
+            y_train_pred_hmm_rf = hmm_rf.predict(y_train_pred_rf, time_train_rf, cfg.data.winsec)
 
             log.info(hmm_rf)
             log.info('RF-HMM saved to %s', cfg.hmm.weights_rf.format(fold))
@@ -141,8 +178,31 @@ def train_model(training_data, cfg, fold="0"):
             hmm_learn_rf.train(rfmodel.oob_decision_function_, y_train_rf, time_train_rf, cfg.data.winsec)
             hmm_learn_rf.save(cfg.hmm_learn.weights_rf.format(fold))
 
+            y_train_pred_hmm_learn_rf = hmm_learn_rf.predict(y_train_pred_rf, time_train_rf, cfg.data.winsec)
+
             log.info(hmm_learn_rf)
             log.info('RF-HMM-Learn saved to %s', cfg.hmm_learn.weights_rf.format(fold))
+
+            if (cfg.peak_counter.enabled):
+                if (cfg.peak_counter.overwrite or not 
+                        os.path.exists(cfg.peak_counter.weights_rf.format("rf", fold))):
+                    peak_counter = PeakCounter(cfg.data.winsec, cfg.data.sample_rate)
+                    peak_counter.train(x_train_rf, y_train_pred_rf, steps_train_rf, group_train_rf)
+                    peak_counter.save(cfg.peak_counter.weights_rf.format("rf", fold))
+                
+                if (cfg.peak_counter.overwrite or not 
+                        os.path.exists(cfg.peak_counter.weights_rf.format("rf_hmm", fold))):
+                    peak_counter = PeakCounter(cfg.data.winsec, cfg.data.sample_rate)
+                    peak_counter.train(x_train_rf, y_train_pred_hmm_rf, steps_train_rf, group_train_rf)
+                    peak_counter.save(cfg.peak_counter.weights_rf.format("rf_hmm", fold))
+                              
+                if (cfg.peak_counter.overwrite or not 
+                        os.path.exists(cfg.peak_counter.weights_rf.format("rf_hmm_learn", fold))):
+                    peak_counter = PeakCounter(cfg.data.winsec, cfg.data.sample_rate)
+                    peak_counter.train(x_train_rf, y_train_pred_hmm_learn_rf, steps_train_rf, group_train_rf)
+                    peak_counter.save(cfg.peak_counter.weights_rf.format("rf_hmm_learn", fold))
+
+                log.info('RF step counters saved to %s', os.path.dirname(cfg.peak_counter.weights_rf))
 
 if __name__ == "__main__":
     np.random.seed(42)
@@ -151,4 +211,4 @@ if __name__ == "__main__":
     cfg = OmegaConf.load("conf/config.yaml")
     log.info(str(OmegaConf.to_yaml(cfg)))
 
-    train_model(load_data(cfg), cfg)
+    train_model(load_data(cfg)[0], cfg)

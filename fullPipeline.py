@@ -34,11 +34,11 @@ if __name__ == "__main__":
 
     prepare_data(cfg)
 
-    for fold, fold_data in load_data(cfg).items():        
+    data_dict = load_data(cfg)
+
+    for fold, fold_data in data_dict.items():        
         train_model(fold_data, cfg, str(fold))
 
         evaluate_model(fold_data, cfg, str(fold))
 
-        #evaluate_steps(fold_data, cfg, str(fold))
-
-    evaluate_folds(cfg, stratify_scores=True)    
+    evaluate_folds(cfg, len(data_dict), stratify_scores=True)    
