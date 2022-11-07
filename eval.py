@@ -214,7 +214,7 @@ def evaluate_model(training_data, cfg, fold="0"):
         log.info('Results RF-HMM-Learn:\n%s', dfr_hmm_learn_rf.mean())
 
 
-def evaluate_folds(cfg, scores = ['f1', 'kappa', 'accuracy'], folds=None, stratify_scores=False):
+def evaluate_folds(cfg, scores = ['f1', 'kappa', 'accuracy'], folds=None):
     folds = folds or 1
     summary_folder = cfg.output_path + '/Summary'
     Path(summary_folder).mkdir(parents=True, exist_ok=True)
@@ -287,17 +287,32 @@ def evaluate_folds(cfg, scores = ['f1', 'kappa', 'accuracy'], folds=None, strati
     model_cols = [col for col in steps_report if col != 'step_tot_true']
 
     steps_summary = pd.DataFrame([{
-        'mae': mean_absolute_error(steps_report['step_tot_true'], steps_report[model_col]),
-        'mape': mean_absolute_percentage_error(steps_report['step_tot_true'], steps_report[model_col]),
-        'rmse': int(mean_squared_error(steps_report['step_tot_true'], steps_report[model_col], squared=False)),
-    } 
-        for model_col in model_cols], index=models.keys())
+        'Mean Absolute Error': int(mean_absolute_error(steps_report['step_tot_true'], steps_report[model_col])),
+        'Mean Absolute Percent Error [%]': "{:.2f}".format(100*mean_absolute_percentage_error(steps_report['step_tot_true'], steps_report[model_col])),
+        'Root mean square error': int(mean_squared_error(steps_report['step_tot_true'], steps_report[model_col], squared=False)),
+        'Root mean square percent error [%]': "{:.2f}".format(
+            100*mean_squared_error(steps_report['step_tot_true'], steps_report[model_col], squared=False)/steps_report['step_tot_true'].mean()),
+        'Bias [%]': 100*((steps_report[model_col].sum()-steps_report['step_tot_true'].sum())/steps_report['step_tot_true'].sum()) 
+    } for model_col in model_cols], index=models.keys())
 
     steps_summary.index.name='Model'
     steps_summary.to_csv(summary_folder+'/steps_summary.csv')
 
+    fig = go.Figure(data=[go.Table(
+                        header=dict(values=['Model']+
+                                           list(steps_summary.columns),
+                                    font_size=16,
+                                    height=30),
+                        cells=dict(values=[list(models.values())] +
+                                          [steps_summary.iloc[:, i] 
+                                            for i in range(len(steps_summary.columns))],
+                                   font_size=16,
+                                   height=30))
+                     ])
+    fig.write_image(summary_folder+'/steps_summary.png', width=1200, height=800)
+
     data_sources = cfg.data.sources
-    if stratify_scores and len(data_sources) > 1:
+    if len(data_sources) > 1:
         def str_lookup(string, reference):
             for elem in reference:
                 if elem in string:
@@ -343,5 +358,5 @@ if __name__ == '__main__':
     torch.manual_seed(42)
     log.info(str(OmegaConf.to_yaml(cfg)))
 
-    evaluate_model(load_data(cfg)[0], cfg)
-    #evaluate_folds(cfg, folds=cfg.training.num_folds)
+    #evaluate_model(load_data(cfg)[0], cfg)
+    evaluate_folds(cfg, folds=cfg.training.num_folds)

@@ -96,7 +96,7 @@ def resample(data: pd.DataFrame, sample_rate, annotation=None, dropna=False):
 def prepare_data(cfg):
     if cfg.data.overwrite or not os.path.exists(cfg.data.processed_data+"/config.txt"):
         log.info("Processing raw data.")
-        files = [(source, elem) for source in cfg.data.name.split(",") 
+        files = [(source, elem) for source in cfg.data.sources
                                 for elem in glob("{}/{}/*.csv".format(cfg.data.raw_data, source))]
 
         X, Ys, T = zip(*Parallel(n_jobs=cfg.num_workers)(
@@ -118,7 +118,7 @@ def prepare_data(cfg):
         
         with open(cfg.data.processed_data+"/config.txt", "w") as f:
             f.write(str({
-                'Data Source(s)': cfg.data.name,
+                'Data Source(s)': cfg.data.sources,
                 'Sample Rate': "{}Hz".format(cfg.data.sample_rate),
                 'Window Size': "{}s".format(cfg.data.winsec),
                 'Step Walking Threshold': "{} step(s) per window".format(cfg.data.step_threshold)
