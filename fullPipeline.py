@@ -41,4 +41,4 @@ if __name__ == "__main__":
 
         evaluate_model(fold_data, cfg, str(fold))
 
-    evaluate_folds(cfg, len(data_dict), stratify_scores=True)    
+    evaluate_folds(cfg, folds=len(data_dict))    
