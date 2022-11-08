@@ -240,6 +240,8 @@ def evaluate_folds(cfg, scores = ['f1', 'kappa', 'accuracy'], folds=None):
     
     master_report.index.name = 'Participant'
 
+    master_report = master_report.groupby('Participant').mean()
+
     with open(summary_folder+"/config.txt", "w") as f:
         f.write(str({
             'Data Source(s)': cfg.data.sources,
@@ -282,6 +284,9 @@ def evaluate_folds(cfg, scores = ['f1', 'kappa', 'accuracy'], folds=None):
     steps_report.index.name = 'Participant'
     steps_report['step_tot_true'] = steps_report['step_tot_true_'+base_models[0]]
     steps_report.drop(columns=['step_tot_true_'+model for model in base_models], inplace=True)
+
+    steps_report = steps_report.groupby('Participant').mean()
+
     steps_report.to_csv(summary_folder+'/steps_report.csv')
     
     model_cols = [col for col in steps_report if col != 'step_tot_true']
@@ -292,7 +297,8 @@ def evaluate_folds(cfg, scores = ['f1', 'kappa', 'accuracy'], folds=None):
         'Root mean square error': int(mean_squared_error(steps_report['step_tot_true'], steps_report[model_col], squared=False)),
         'Root mean square percent error [%]': "{:.2f}".format(
             100*mean_squared_error(steps_report['step_tot_true'], steps_report[model_col], squared=False)/steps_report['step_tot_true'].mean()),
-        'Bias [%]': 100*((steps_report[model_col].sum()-steps_report['step_tot_true'].sum())/steps_report['step_tot_true'].sum()) 
+        'Bias [%]': "{:.2f}".format(
+            100*((steps_report[model_col].sum()-steps_report['step_tot_true'].sum())/steps_report['step_tot_true'].sum()))
     } for model_col in model_cols], index=models.keys())
 
     steps_summary.index.name='Model'
