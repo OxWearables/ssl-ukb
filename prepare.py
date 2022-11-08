@@ -29,11 +29,11 @@ def read_csv(filename):
             'y': 'f4', 
             'z': 'f4',
             'mag': 'f4',
-            'annotation': 'i2',
+            'annotation': 'Int64',
             'task_code': str,
-            'tremor': 'i2',
-            'bradykinesia': 'i2',
-            'dyskinesia': 'i2'
+            'tremor': 'Int64',
+            'bradykinesia': 'Int64',
+            'dyskinesia': 'Int64'
         }
     )
     return data
