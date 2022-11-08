@@ -119,17 +119,19 @@ def load_data(cfg):
     time = np.load(cfg.data.time_path, allow_pickle=True)
     steps = None
     source = None
+    
+    log.info('X shape: %s', X.shape)
+    log.info('Y shape: %s', y.shape)
+    log.info('Label distribution:\n%s', pd.Series(y).value_counts())
 
     if cfg.data.source_path:
         source = np.load(cfg.data.source_path, allow_pickle=True)
         pid = source + '_' + pid
+        log.info('Data source distribution:\n%s', pd.Series(source).value_counts())
 
     if cfg.data.steps_path:
         steps = np.load(cfg.data.steps_path)
-
-    log.info('X shape: %s', X.shape)
-    log.info('Y shape: %s', y.shape)
-    log.info('Label distribution:\n%s', pd.Series(y).value_counts())
+        log.info('Total steps: %s', np.nansum(steps))
 
     input_size = cfg.data.winsec * cfg.data.sample_rate
     if X.shape[1] == input_size:
@@ -162,11 +164,17 @@ def load_data(cfg):
             cfg.training.num_folds, test_size=0.2, random_state=42
         ).split(X, y, groups=pid)
 
-    return {fold: split_data(X, y, pid, time, train_idx, test_idx, source, steps, cfg.training.val_split, fold) 
+    return {fold: split_data(X, y, pid, time, train_idx, test_idx, source, 
+                             steps, cfg.training.external_val, cfg.training.val_split, fold) 
                 for fold, (train_idx, test_idx) in enumerate(folds)}
 
 
-def split_data(X, y, pid, time, train_idx, test_idx, source=None, steps=None, val_split=0.125, fold=0):
+def split_data(X, y, pid, time, train_idx, test_idx, source=None, steps=None, 
+               external_val=None, val_split=0.125, fold=0):
+    if external_val is not None and source is not None:
+        test_idx = source == external_val
+        train_idx = source != external_val
+    
     x_test = X[test_idx]
     y_test = y[test_idx]
     time_test = time[test_idx]

@@ -14,6 +14,7 @@ training:
   cv_type: LeaveOneGroupOut
   num_folds: 5
   val_split: 0.2
+  external_val:
 
 sslnet:
   enabled: true

@@ -54,19 +54,17 @@ class PeakCounter():
             params = {
                 "distance": x[0],
                 "max_width": x[1],
-                "prominence": x[2],
-                "lowpass_hz": x[3]
+                "prominence": x[2]
             }
             return params
                     
         res = minimize(
             mae,
-            x0=[.5, .5, .5, 4],
+            x0=[.5, .5, .5],
             bounds=[
                 (.2, 2),  # 0.2s to 2s (4Hz - 0.5Hz)
                 (.01, 1), # 10ms to 1s
                 (.1, 1),  # .1g to 1g
-                (3, 5),   # 3Hz to 5Hz
             ],
             method='Nelder-Mead'
         )
@@ -90,7 +88,7 @@ def count_participant_peaks(X, y_walk, y_steps, groups, pid, sample_rate, params
 
 def batch_count_peaks(X, sample_rate, params):
     """ Count number of peaks for an array of signals """
-    V = toV(X, sample_rate, params["lowpass_hz"])
+    V = toV(X, sample_rate)
     return batch_count_peaks_from_V(V, sample_rate, params)
 
 
@@ -107,7 +105,8 @@ def batch_count_peaks_from_V(V, sample_rate, params):
     return Y
 
 
-def toV(x, sample_rate, lowpass_hz):
+def toV(x, sample_rate, lowpass_hz=5):
+    """ Normalise, filter and clip acceleration """
     V = np.linalg.norm(x, axis=-1)
     V = V - 1
     V = np.clip(V, -2, 2)
