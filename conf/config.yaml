@@ -2,7 +2,6 @@ gpu: -1
 multi_gpu: false
 gpu_ids: [0, 1, 2]
 num_workers: 10  # number of CPU cores for parallel tasks
-num_folds: 5 # number of folds in the cross validation
 
 # location where to save prediction outputs
 output_path: outputs
@@ -11,10 +10,15 @@ output_path: outputs
 # Leave empty otherwise (will auto download repo from Github when empty).
 ssl_repo_path:
 
+training:
+  cv_type: LeaveOneGroupOut
+  num_folds: 5
+  val_split: 0.2
+
 sslnet:
   enabled: true
   overwrite: false
-  weights: weights/state_dict_{}.pt
+  weights: weights/ssl/state_dict_{}.pt
   augmentation: true
   weighted_loss_fn: true
   learning_rate: 0.0001
@@ -25,22 +29,28 @@ sslnet:
 rf:
   enabled: true
   overwrite: false
-  path: weights/rf_{}.joblib
+  path: weights/rf/model_{}.joblib
 
 hmm:
-  weights_ssl: weights/hmm_ssl_{}.npz
-  weights_rf: weights/hmm_rf_{}.npz
+  weights_ssl: weights/ssl/hmm_{}.npz
+  weights_rf: weights/rf/hmm_{}.npz
   uniform_prior: true
 
 hmm_learn:
-  weights_ssl: weights/hmm_learn_ssl_{}.npz
-  weights_rf: weights/hmm_rf_{}.npz
+  weights_ssl: weights/ssl/hmm_learn_{}.npz
+  weights_rf: weights/rf/hmm_learn_{}.npz
   uniform_prior: true
 
+peak_counter:
+  enabled: true
+  overwrite: true
+  weights_ssl: weights/ssl/{}_peak_counter_{}.npy
+  weights_rf: weights/rf/{}_peak_counter_{}.npy
+
 data:
-  name: [OxWalk]
+  sources: ["OxWalk"]
   overwrite: false
-  data_root: /data
+  data_root: C:/Users/AidenA/Documents/Projects/ssl-walking/data
   raw_data: "${.data_root}/raw"
   processed_data: "${.data_root}/processed"
   X_path: "${.processed_data}/X.npy"
