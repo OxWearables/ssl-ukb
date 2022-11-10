@@ -279,7 +279,7 @@ def evaluate_folds(cfg, scores = ['f1', 'kappa', 'accuracy'], folds=None):
         pd.concat([pd.read_csv('{}/steps_{}_{}.csv'.format('outputs', model, fold), 
                                index_col=[0]) 
                     for fold in range(folds)]).add_suffix('_'+model)
-                        for model in base_models], axis=1).dropna()
+                        for model in base_models], axis=1)
     
     steps_report.index.name = 'Participant'
     steps_report['step_tot_true'] = steps_report['step_tot_true_'+base_models[0]]
@@ -288,36 +288,39 @@ def evaluate_folds(cfg, scores = ['f1', 'kappa', 'accuracy'], folds=None):
     steps_report = steps_report.groupby('Participant').mean()
 
     steps_report.to_csv(summary_folder+'/steps_report.csv')
-    
-    model_cols = [col for col in steps_report if col != 'step_tot_true']
 
-    steps_summary = pd.DataFrame([{
-        'Mean Absolute Error': int(mean_absolute_error(steps_report['step_tot_true'], steps_report[model_col])),
-        'Mean Absolute Percent Error [%]': "{:.2f}".format(100*mean_absolute_percentage_error(steps_report['step_tot_true'], steps_report[model_col])),
-        'Root mean square error': int(mean_squared_error(steps_report['step_tot_true'], steps_report[model_col], squared=False)),
-        'Root mean square percent error [%]': "{:.2f}".format(
-            100*mean_squared_error(steps_report['step_tot_true'], steps_report[model_col], squared=False)/steps_report['step_tot_true'].mean()),
-        'Bias [%]': "{:.2f}".format(
-            100*((steps_report[model_col].sum()-steps_report['step_tot_true'].sum())/steps_report['step_tot_true'].sum()))
-    } for model_col in model_cols], index=models.keys())
+    steps_report.dropna(inplace=True)
 
-    steps_summary.index.name='Model'
-    steps_summary.to_csv(summary_folder+'/steps_summary.csv')
+    if len(steps_report) > 0:
+        model_cols = [col for col in steps_report if col != 'step_tot_true']
 
-    fig = go.Figure(data=[go.Table(
-                        header=dict(values=['Model']+
-                                           list(steps_summary.columns),
-                                    font_size=16,
-                                    height=30),
-                        cells=dict(values=[list(models.values())] +
-                                          [steps_summary.iloc[:, i] 
-                                            for i in range(len(steps_summary.columns))],
-                                   font_size=16,
-                                   height=30))
-                     ])
-    fig.write_image(summary_folder+'/steps_summary.png', width=1200, height=800)
+        steps_summary = pd.DataFrame([{
+            'Mean Absolute Error': int(mean_absolute_error(steps_report['step_tot_true'], steps_report[model_col])),
+            'Mean Absolute Percent Error [%]': "{:.2f}".format(100*mean_absolute_percentage_error(steps_report['step_tot_true'], steps_report[model_col])),
+            'Root mean square error': int(mean_squared_error(steps_report['step_tot_true'], steps_report[model_col], squared=False)),
+            'Root mean square percent error [%]': "{:.2f}".format(
+                100*mean_squared_error(steps_report['step_tot_true'], steps_report[model_col], squared=False)/steps_report['step_tot_true'].mean()),
+            'Bias [%]': "{:.2f}".format(
+                100*((steps_report[model_col].sum()-steps_report['step_tot_true'].sum())/steps_report['step_tot_true'].sum()))
+        } for model_col in model_cols], index=models.keys())
 
-    data_sources = cfg.data.sources
+        steps_summary.index.name='Model'
+        steps_summary.to_csv(summary_folder+'/steps_summary.csv')
+
+        fig = go.Figure(data=[go.Table(
+                            header=dict(values=['Model']+
+                                               list(steps_summary.columns),
+                                        font_size=16,
+                                        height=30),
+                            cells=dict(values=[list(models.values())] +
+                                              [steps_summary.iloc[:, i] 
+                                                for i in range(len(steps_summary.columns))],
+                                       font_size=16,
+                                       height=30))
+                         ])
+        fig.write_image(summary_folder+'/steps_summary.png', width=1200, height=800)
+
+    data_sources = [cfg.training.external_val] if cfg.training.external_val is not None else cfg.data.sources.keys()
     if len(data_sources) > 1:
         def str_lookup(string, reference):
             for elem in reference:

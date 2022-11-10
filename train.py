@@ -117,6 +117,7 @@ def train_model(training_data, cfg, fold="0"):
             log.info('SSL-HMM-Learn saved to %s', cfg.hmm_learn.weights_ssl.format(fold))
 
             if (cfg.peak_counter.enabled):
+                log.info('Training SSL peak detectors')
                 if (cfg.peak_counter.overwrite or not 
                         os.path.exists(cfg.peak_counter.weights_ssl.format("ssl", fold))):
                     peak_counter = PeakCounter(cfg.data.winsec, cfg.data.sample_rate)
@@ -135,7 +136,7 @@ def train_model(training_data, cfg, fold="0"):
                     peak_counter.train(x_val, y_val_pred_hmm_learn, steps_val, group_val)
                     peak_counter.save(cfg.peak_counter.weights_ssl.format("ssl_hmm_learn", fold))
 
-                log.info('SSL step counters saved to %s', os.path.dirname(cfg.peak_counter.weights_ssl))
+                log.info('SSL peak counters saved to %s', os.path.dirname(cfg.peak_counter.weights_ssl))
 
     if cfg.rf.enabled:
         x_train_rf = np.concatenate((x_train, x_val))
@@ -184,6 +185,7 @@ def train_model(training_data, cfg, fold="0"):
             log.info('RF-HMM-Learn saved to %s', cfg.hmm_learn.weights_rf.format(fold))
 
             if (cfg.peak_counter.enabled):
+                log.info('Training RF peak detectors')
                 if (cfg.peak_counter.overwrite or not 
                         os.path.exists(cfg.peak_counter.weights_rf.format("rf", fold))):
                     peak_counter = PeakCounter(cfg.data.winsec, cfg.data.sample_rate)
@@ -202,7 +204,7 @@ def train_model(training_data, cfg, fold="0"):
                     peak_counter.train(x_train_rf, y_train_pred_hmm_learn_rf, steps_train_rf, group_train_rf)
                     peak_counter.save(cfg.peak_counter.weights_rf.format("rf_hmm_learn", fold))
 
-                log.info('RF step counters saved to %s', os.path.dirname(cfg.peak_counter.weights_rf))
+                log.info('RF peak detectors saved to %s', os.path.dirname(cfg.peak_counter.weights_rf))
 
 if __name__ == "__main__":
     np.random.seed(42)

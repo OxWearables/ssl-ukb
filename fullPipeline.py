@@ -36,7 +36,7 @@ if __name__ == "__main__":
 
     data_dict = load_data(cfg)
 
-    for fold, fold_data in data_dict.items():        
+    for fold, fold_data in data_dict.items():
         train_model(fold_data, cfg, str(fold))
 
         evaluate_model(fold_data, cfg, str(fold))
