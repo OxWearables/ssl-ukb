@@ -17,6 +17,7 @@ import utils.utils as utils
 
 log = utils.get_logger()
 
+
 def read_csv(filename):
     """ Data loader """
 
@@ -38,80 +39,106 @@ def read_csv(filename):
     )
     return data
 
-def resample(data: pd.DataFrame, sample_rate, annotation=None, dropna=False):
-    """ 
-    Nearest neighbor resampling. For downsampling, it is recommended to first
-    apply an antialiasing filter.
-    :param data: A pandas.DataFrame of acceleration time-series. The index must be a DateTimeIndex.
-    :type data: pandas.DataFrame.
-    :param sample_rate: Target sample rate (Hz) to achieve.
-    :type sample_rate: int or float
-    :param dropna: Whether to drop NaN values after resampling. Defaults to False.
-    :type dropna: bool, optional
-    :return: Processed data and processing info.
-    :rtype: (pandas.DataFrame, dict)
+
+def resize(x, length, axis=1):
+    """Resize the temporal length using linear interpolation.
+    X must be of shape (N,M,C) (channels last) or (N,C,M) (channels first),
+    where N is the batch size, M is the temporal length, and C is the number
+    of channels.
+    If X is channels-last, use axis=1 (default).
+    If X is channels-first, use axis=2.
     """
+    from scipy.interpolate import interp1d
 
-    # Round-up sample_rate if non-integer
-    if isinstance(sample_rate, float) and not sample_rate.is_integer():
-        print(f"Found non-integer sample_rate {sample_rate},", end=" ")
-        sample_rate = np.ceil(sample_rate)
-        print(f"rounded-up to {sample_rate}.")
+    length_orig = x.shape[axis]
+    t_orig = np.linspace(0, 1, length_orig, endpoint=True)
+    t_new = np.linspace(0, 1, length, endpoint=True)
+    x = interp1d(t_orig, x, kind="linear", axis=axis, assume_sorted=True)(
+        t_new
+    )
+    return x
 
-    # Create a new index with intended sample_rate. Start and end times are
-    # rounded to seconds so that the number of ticks (periods) is round
-    start = data.index[0].ceil('S')
-    end = data.index[-1].floor('S')
-    periods = int((end - start).total_seconds() * sample_rate + 1)  # +1 for the last tick
-    new_index = pd.date_range(start, end, periods=periods, name='time')
-    data = data.iloc[~data.index.duplicated()] # Remove records with duplicated index   
+
+def is_good_quality(w, sample_rate, winsec, tolerance=0.01):
+    """ Window quality check """
+
+    if w.isna().any().any():
+        return False
+
+    if len(w) != sample_rate*winsec:
+        return False
+
+    w_start, w_end = w.index[0], w.index[-1]
+    w_duration = w_end - w_start
+    target_duration = pd.Timedelta(winsec, 's')
+    if np.abs(w_duration - target_duration) > tolerance * target_duration:
+        return False
+
+    return True
+
+
+def make_windows(datafile, sample_rate, winsec, resample_rate, step_threshold, overlapsec=0, annot_type='steps'):
+    X, Ys, T, P, = [], [], [], []
+    accel_cols = ['x', 'y', 'z']
+
+    data = read_csv(datafile)
     
-    if annotation == 'steps':
-        # Resampling acceleration values to take the nearest acceleration value in each axis
-        data_resampled = data[['x', 'y', 'z']].reindex(new_index,
-                                                       method='nearest',
-                                                       tolerance=pd.Timedelta('1s'),
-                                                       limit=1)
+    annotation_cols = data.columns.difference(accel_cols)
+    p = os.path.basename(datafile).replace(".csv", "").replace("_wrist100", "") # PXX, PYY, XX_AAA, YY_BBB
 
-        # Resampling step annotations requires finding the nearest resampled time point in the new index to the annotated step time point
-        data_resampled['annotation'] = 0
-        nearest_steps = new_index.get_indexer(data[data['annotation']==1].index, method='nearest')
-        data_resampled.loc[data_resampled.index[nearest_steps], 'annotation'] = 1
+    for i in range(0, len(data), sample_rate*(winsec-overlapsec)):
+        w = data.iloc[i:i + sample_rate*winsec]
 
-        if data_resampled['annotation'].sum() != data['annotation'].sum():
-            print("Resampling has caused a change in step count")
-    
-    else:
-        # Resampling all data points to nearest value
-        data_resampled = data.reindex(new_index,
-                                      method='nearest',
-                                      tolerance=pd.Timedelta('1s'),
-                                      limit=1)
+        if not is_good_quality(w, sample_rate, winsec):
+            continue
 
-    if dropna:
-        data_resampled = data_resampled.dropna()
+        t = w.index[0].to_datetime64()
+        x = w[accel_cols].values
 
-    return data_resampled
+        if annot_type == 'steps':
+            ys = {'is_walk': 1 if w['annotation'].sum() >= step_threshold else 0,
+                  'steps': w['annotation'].sum()}
+        else:
+            ys = {**{'is_walk': w['annotation'].mode(dropna=False).iloc[0]},
+                  **{label: w[label].mode(dropna=False).iloc[0] 
+                        for label in annotation_cols.difference(['annotation'])}}
+        X.append(x)
+        Ys.append(ys)
+        T.append(t)
+        P.append(p)
+
+    X = np.asarray(X)
+    Ys = pd.DataFrame(Ys)
+    T = np.asarray(T)
+    P = np.asarray(P)
+
+    if sample_rate != resample_rate:
+        X = resize(X, int(resample_rate * winsec))
+
+    return X, Ys, T, P
+
 
 def prepare_data(cfg):
     if cfg.data.overwrite or not os.path.exists(cfg.data.processed_data+"/config.txt"):
         log.info("Processing raw data.")
-        files = [(source, elem) for source in cfg.data.sources
-                                for elem in glob("{}/{}/*.csv".format(cfg.data.raw_data, source))]
+        files = [(source, elem) for source_name, source in cfg.data.sources.items()
+                                for elem in glob("{}/{}/*.csv".format(cfg.data.raw_data, source_name))]
 
-        X, Ys, T = zip(*Parallel(n_jobs=cfg.num_workers)(
-            delayed(prepare_participant_data)(filename, cfg.data.sample_rate, cfg.data.winsec, 
-                                              cfg.data.step_threshold, data_source) 
-                                                   for data_source, filename in tqdm(files)))
-
-        X = np.concatenate(X)
-        T = np.concatenate(T)
+        X, Ys, T, P = zip(*Parallel(n_jobs=cfg.num_workers)(
+            delayed(make_windows)(filename, data_source['raw_sample_rate'], cfg.data.winsec, 
+                                  cfg.data.sample_rate, cfg.data.step_threshold, 
+                                  annot_type=data_source['annot_type']) for data_source, filename in tqdm(files)))
+        
+        X = np.vstack(X)
+        T = np.hstack(T)
+        P = np.hstack(P)
         Ys = pd.concat(Ys)
 
         Path(cfg.data.processed_data).mkdir(parents=True, exist_ok=True)
 
         np.save(cfg.data.processed_data+"/X.npy", X)
         np.save(cfg.data.processed_data+"/T.npy", T)
+        np.save(cfg.data.processed_data+"/pid.npy", P)
     
         for col in Ys.columns:
             np.save("{}/Y_{}.npy".format(cfg.data.processed_data, col), np.array(Ys[col]))
@@ -131,24 +158,10 @@ def prepare_data(cfg):
         log.info("Using already processed data.")
 
 
-def prepare_participant_data(filename, sample_rate, winsec, step_threshold, source):
-    data = read_csv(filename)
-    if source == 'OxWalk':
-        data = resample(data, sample_rate, 'steps', dropna=True)
-    else:
-        data = resample(data, sample_rate, dropna=True)
-    X, Y, T = utils.make_windows(data, winsec, sample_rate, step_threshold)
-    #pid = re.search(r'(P\d{2})', os.path.basename(filename)).group(1).upper()  # P01, P02, ...
-    pid = os.path.basename(filename).replace(".csv", "").replace("_wrist100", "") # PXX, PYY, XX_AAA, YY_BBB
-    Y['pid'] = pid
-    Y['source'] = source
-
-    return X, Y, T
-
 if __name__ == "__main__":
     np.random.seed(42)
 
     cfg = OmegaConf.load("conf/config.yaml")
     log.info(str(OmegaConf.to_yaml(cfg)))
 
-    prepare_data(cfg, 10, cfg.data.overwrite)
+    prepare_data(cfg)

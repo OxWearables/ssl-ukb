@@ -66,6 +66,9 @@ class PeakCounter():
                 (.01, 1), # 10ms to 1s
                 (.1, 1),  # .1g to 1g
             ],
+            options={
+                'disp': True
+            },
             method='Nelder-Mead'
         )
 

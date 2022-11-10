@@ -12,7 +12,7 @@ ssl_repo_path:
 
 training:
   cv_type: LeaveOneGroupOut
-  num_folds: 5
+  num_folds:
   val_split: 0.2
   external_val:
 
@@ -49,16 +49,22 @@ peak_counter:
   weights_rf: weights/rf/{}_peak_counter_{}.npy
 
 data:
-  sources: ["OxWalk"]
+  sources: 
+    OxWalk:
+      raw_sample_rate: 100
+      annot_type: steps
+#    LDopa:
+#      raw_sample_rate: 50
+#      annot_type: mode 
   overwrite: false
   data_root: C:/Users/AidenA/Documents/Projects/ssl-walking/data
   raw_data: "${.data_root}/raw"
   processed_data: "${.data_root}/processed"
   X_path: "${.processed_data}/X.npy"
   Y_path: "${.processed_data}/Y_is_walk.npy"
-  PID_path: "${.processed_data}/Y_pid.npy"
+  PID_path: "${.processed_data}/pid.npy"
   time_path: "${.processed_data}/T.npy"
-  source_path: "${.processed_data}/Y_source.npy"
+  source_path:
   steps_path: "${.processed_data}/Y_steps.npy"
   sample_rate: 30
   winsec: 10
