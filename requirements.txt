@@ -13,6 +13,6 @@ dask
 pytz
 seaborn
 pyarrow
-actipy
+actipy~=1.1.0
 accelerometer
 transforms3d~=0.3.1
