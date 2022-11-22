@@ -9,7 +9,7 @@ SSL-HMM: HMM trained on the predictions of the validation fold of the fine-tuned
 
 Output (saved to disk, see config for paths):
 - A joblib dump pickle with the RF (cfg.rf.path)
-- The fine-tuned SSLNet weights (cfg.sslnet.weights)
+- The fine-tuned SSLNet weights (cfg.ssl.weights)
 - A Numpy archive (.npz) with the RF-HMM and SSL-HMM model matrices (cfg.hmm.weights)
 """
 
@@ -47,39 +47,39 @@ def train_model(training_data, cfg, fold="0"):
         _, _, _, _, _,
     ) = training_data
 
-    if cfg.sslnet.enabled:
+    if cfg.ssl.enabled:
         # load SSL model with self-supervised pre-trained weights
         sslnet = ssl.get_sslnet(my_device, cfg.ssl_repo_path, pretrained=True)
 
         if cfg.multi_gpu:
             sslnet = torch.nn.DataParallel(sslnet, output_device=my_device, device_ids=cfg.gpu_ids)
         
-        if cfg.sslnet.overwrite or not os.path.exists(cfg.sslnet.weights.format(fold)):
+        if cfg.ssl.overwrite or not os.path.exists(cfg.ssl.weights.format(fold)):
             # SSLNet training
             # construct train and validation dataloaders
-            train_dataset = NormalDataset(x_train, y_train, name="train", is_labelled=True, transform=cfg.sslnet.augmentation)
+            train_dataset = NormalDataset(x_train, y_train, name="train", is_labelled=True, transform=cfg.ssl.augmentation)
             val_dataset = NormalDataset(x_val, y_val, name="val", is_labelled=True)
 
             train_loader = DataLoader(
                 train_dataset,
-                batch_size=cfg.sslnet.batch_size,
+                batch_size=cfg.ssl.batch_size,
                 shuffle=True,
                 num_workers=2,
             )
 
             val_loader = DataLoader(
                 val_dataset,
-                batch_size=cfg.sslnet.batch_size,
+                batch_size=cfg.ssl.batch_size,
                 shuffle=False,
                 num_workers=0,
             )
 
             log.info('SSLNet training')
             ssl.train(sslnet, train_loader, val_loader, cfg, my_device, get_inverse_class_weights(y_train), 
-                        cfg.sslnet.weights.format(fold))
+                        cfg.ssl.weights.format(fold))
 
             # load trained SSLNet weights (best weights prior to early-stopping)
-            model_dict = torch.load(cfg.sslnet.weights.format(fold), map_location=my_device)
+            model_dict = torch.load(cfg.ssl.weights.format(fold), map_location=my_device)
 
             if cfg.multi_gpu:
                 sslnet.module.load_state_dict(model_dict)

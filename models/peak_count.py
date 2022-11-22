@@ -74,8 +74,21 @@ class PeakCounter():
 
         self.peak_params = to_params(res.x)
     
-    def predict(self, X, y_walk):
-        return batch_count_peaks(X[y_walk==1], self.sample_rate, self.peak_params).sum()
+    def predict(self, X, y_walk = None, return_sum = True):
+        """
+        Predict step count for windows of X
+        Step counts are 0 when y_walk is 0
+        """
+        if y_walk is None:
+            y = batch_count_peaks(X, self.sample_rate, self.peak_params)
+        else:
+            y = batch_count_peaks(X[y_walk.astype('bool')], self.sample_rate, self.peak_params)
+        
+        if return_sum:
+            return y.sum()
+        else:
+            return y
+
 
 
 def count_participant_peaks(X, y_walk, y_steps, groups, pid, sample_rate, params):

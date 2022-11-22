@@ -112,7 +112,7 @@ class HMM:
 
         :param str path: npz file location
         """
-        d = np.load(path)
+        d = np.load(path, allow_pickle=True)
         self.prior = d['prior']
         self.emission = d['emission']
         self.transition = d['transition']

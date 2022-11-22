@@ -217,47 +217,24 @@ def get_logger():
 
     return log
 
-def make_windows(data: pd.DataFrame, window_sec: int=None, sample_rate: int=None, step_threshold: int=None):
-    """ Split data into windows, and extract labels """
 
-    X_raw = []
-    T = []
-    accel_cols = ['x', 'y', 'z']
-    annotation_cols = data.columns.difference(accel_cols)
+def make_windows(data, window_sec, fn=None, return_index=False):
+    """ Split data into windows """
 
-    if len(annotation_cols) > 0:
-        Ys = []
-    
-    for _, w in data.resample(f"{window_sec}s", origin='start'):
-        if w.isna().any(axis=None) or (len(w) < window_sec * sample_rate):
-            continue
-        
-        if len(annotation_cols) == 1:
-            steps = w['annotation'].sum()
-            is_walk = int(steps >= step_threshold)
+    if fn is None:
+        def fn(x):
+            return x
 
-            Ys.append({
-                'steps': steps,
-                'is_walk': is_walk
-            })
-        elif len(annotation_cols) > 1:
-            Ys.append({**{
-                'is_walk': w['annotation'].mode(dropna=False).iloc[0]
-                },
-                **{
-                    label: w[label].mode(dropna=False).iloc[0]
-                for label in annotation_cols.difference(['annotation'])}})
-        
-        xyz = w[accel_cols].to_numpy()
+    X = [fn(x) for _, x in data.resample(f"{window_sec}s", origin="start")]
 
-        X_raw.append(xyz)
-        T.append(w.index[0])
+    if return_index:
+        T = (
+            data.index
+            .to_series()
+            .resample(f"{window_sec}s", origin="start")
+            .first()
+        )
+        return X, T
 
-    X_raw = np.stack(X_raw)
-    T = np.stack(T)
+    return X
 
-    if len(annotation_cols) > 0:
-        Ys = pd.DataFrame(Ys)
-        return X_raw, Ys, T
-
-    return X_raw, T
