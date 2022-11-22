@@ -77,8 +77,8 @@ def is_good_quality(w, sample_rate, winsec, tolerance=0.01):
     return True
 
 
-def make_windows(datafile, sample_rate, winsec, resample_rate, step_threshold, overlapsec=0, annot_type='steps'):
-    X, Ys, T, P, = [], [], [], []
+def make_windows(datafile, sample_rate, winsec, resample_rate, step_threshold, overlapsec=0, source_name='', annot_type='steps'):
+    X, Ys, T, P, S = [], [], [], [], []
     accel_cols = ['x', 'y', 'z']
 
     data = read_csv(datafile)
@@ -106,32 +106,35 @@ def make_windows(datafile, sample_rate, winsec, resample_rate, step_threshold, o
         Ys.append(ys)
         T.append(t)
         P.append(p)
+        S.append(source_name)
 
     X = np.asarray(X)
     Ys = pd.DataFrame(Ys)
     T = np.asarray(T)
     P = np.asarray(P)
+    S = np.asarray(S)
 
     if sample_rate != resample_rate:
         X = resize(X, int(resample_rate * winsec))
 
-    return X, Ys, T, P
+    return X, Ys, T, P, S
 
 
 def prepare_data(cfg):
     if cfg.data.overwrite or not os.path.exists(cfg.data.processed_data+"/config.txt"):
         log.info("Processing raw data.")
-        files = [(source, elem) for source_name, source in cfg.data.sources.items()
-                                for elem in glob("{}/{}/*.csv".format(cfg.data.raw_data, source_name))]
+        files = [(source_name, source_info, filename) for source_name, source_info in cfg.data.sources.items()
+                                for filename in glob("{}/{}/*.csv".format(cfg.data.raw_data, source_name))]
 
-        X, Ys, T, P = zip(*Parallel(n_jobs=cfg.num_workers)(
-            delayed(make_windows)(filename, data_source['raw_sample_rate'], cfg.data.winsec, 
-                                  cfg.data.sample_rate, cfg.data.step_threshold, 
-                                  annot_type=data_source['annot_type']) for data_source, filename in tqdm(files)))
+        X, Ys, T, P, S = zip(*Parallel(n_jobs=cfg.num_workers)(
+            delayed(make_windows)(filename, source_info['raw_sample_rate'], cfg.data.winsec, 
+                                  cfg.data.sample_rate, cfg.data.step_threshold, source_name=source_name,
+                                  annot_type=source_info['annot_type']) for source_name, source_info, filename in tqdm(files)))
         
         X = np.vstack(X)
         T = np.hstack(T)
         P = np.hstack(P)
+        S = np.hstack(S)
         Ys = pd.concat(Ys)
 
         Path(cfg.data.processed_data).mkdir(parents=True, exist_ok=True)
@@ -139,6 +142,7 @@ def prepare_data(cfg):
         np.save(cfg.data.processed_data+"/X.npy", X)
         np.save(cfg.data.processed_data+"/T.npy", T)
         np.save(cfg.data.processed_data+"/pid.npy", P)
+        np.save(cfg.data.processed_data+"/source.npy", S)
     
         for col in Ys.columns:
             np.save("{}/Y_{}.npy".format(cfg.data.processed_data, col), np.array(Ys[col]))

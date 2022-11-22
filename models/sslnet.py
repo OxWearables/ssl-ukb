@@ -171,7 +171,7 @@ def train(model, train_loader, val_loader, cfg, my_device, weights,
     Iterate over the training dataloader and train a pytorch model.
     After each epoch, validate model and early stop when validation loss function bottoms out.
 
-    Trained model weights will be saved to disk (cfg.sslnet.weights).
+    Trained model weights will be saved to disk (cfg.ssl.weights).
 
     :param nn.Module model: pytorch model
     :param train_loader: training data loader
@@ -181,20 +181,20 @@ def train(model, train_loader, val_loader, cfg, my_device, weights,
     :param weights: training class weights
     """
     optimizer = torch.optim.Adam(
-        model.parameters(), lr=cfg.sslnet.learning_rate, amsgrad=True
+        model.parameters(), lr=cfg.ssl.learning_rate, amsgrad=True
     )
 
-    if cfg.sslnet.weighted_loss_fn:
+    if cfg.ssl.weighted_loss_fn:
         weights = torch.FloatTensor(weights).to(my_device)
         loss_fn = nn.CrossEntropyLoss(weight=weights)
     else:
         loss_fn = nn.CrossEntropyLoss()
 
     early_stopping = EarlyStopping(
-        patience=cfg.sslnet.patience, path=weights_path, verbose=True, trace_func=log.info
+        patience=cfg.ssl.patience, path=weights_path, verbose=True, trace_func=log.info
     )
 
-    for epoch in range(cfg.sslnet.num_epoch):
+    for epoch in range(cfg.ssl.num_epoch):
         model.train()
         train_losses = []
         train_acces = []
@@ -219,9 +219,9 @@ def train(model, train_loader, val_loader, cfg, my_device, weights,
 
         val_loss, val_acc = _validate_model(model, val_loader, my_device, loss_fn)
 
-        epoch_len = len(str(cfg.sslnet.num_epoch))
+        epoch_len = len(str(cfg.ssl.num_epoch))
         print_msg = (
-            f"[{epoch:>{epoch_len}}/{cfg.sslnet.num_epoch:>{epoch_len}}] | "
+            f"[{epoch:>{epoch_len}}/{cfg.ssl.num_epoch:>{epoch_len}}] | "
             + f"train_loss: {np.mean(train_losses):.3f} | "
             + f"train_acc: {np.mean(train_acces):.3f} | "
             + f"val_loss: {val_loss:.3f} | "

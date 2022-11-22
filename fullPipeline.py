@@ -6,7 +6,7 @@ SSL-HMM: HMM trained on the predictions of the validation fold of the fine-tuned
 SSL-HMM-learn: HMM-learn trained on the predictions of the validation fold of the fine-tuned SSLNet.
 
 Output for each fold (saved to disk, see config for paths):
-- The fine-tuned SSLNet weights (cfg.sslnet.weights)
+- The fine-tuned SSLNet weights (cfg.ssl.weights)
 - A Numpy archive (.npz) with the SSL-HMM model matrices (cfg.hmm.weights)
 - A Numpy archive (.npz) with the SSL-HMM-learn model matrices (cfg.hmmlearn.weights)
 """

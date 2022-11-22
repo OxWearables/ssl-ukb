@@ -71,9 +71,9 @@ def score(x, y_true, y_pred, steps, groups, current_pid, t, interval,
     # Count the number of peaks for the predicted walking windows as step count
     step_counts = {'pid': current_pid,
                    'step_tot_true': steps.sum(),
-                   'step_tot_pred': peak_counter.predict(subject_x, subject_pred),
-                   'step_tot_pred_hmm': hmm_peak_counter.predict(subject_x, subject_pred_hmm),
-                   'step_tot_pred_hmm_learn': hmm_learn_peak_counter.predict(subject_x, subject_pred_hmm_learn)
+                   'step_tot_pred': peak_counter.predict(subject_x, subject_pred, return_sum=True),
+                   'step_tot_pred_hmm': hmm_peak_counter.predict(subject_x, subject_pred_hmm, return_sum=True),
+                   'step_tot_pred_hmm_learn': hmm_learn_peak_counter.predict(subject_x, subject_pred_hmm_learn, return_sum=True)
                   }
 
     return result, result_hmm, result_hmm_learn, step_counts, current_pid
@@ -96,9 +96,9 @@ def evaluate_model(training_data, cfg, fold="0"):
     # save performance scores and plots for every single subject
     my_pids = np.unique(group_test)
 
-    if cfg.sslnet.enabled:
+    if cfg.ssl.enabled:
         # load pretrained SSL model
-        sslnet = ssl.get_sslnet(my_device, cfg.ssl_repo_path, cfg.sslnet.weights.format(fold))
+        sslnet = ssl.get_sslnet(my_device, cfg.ssl_repo_path, cfg.ssl.weights.format(fold))
 
         hmm_ssl = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
         hmm_ssl.load(cfg.hmm.weights_ssl.format(fold))
@@ -119,7 +119,7 @@ def evaluate_model(training_data, cfg, fold="0"):
 
         test_loader = DataLoader(
             test_dataset,
-            batch_size=cfg.sslnet.batch_size,
+            batch_size=cfg.ssl.batch_size,
             shuffle=False,
             num_workers=0,
         )
@@ -225,7 +225,7 @@ def evaluate_folds(cfg, scores = ['f1', 'kappa', 'accuracy'], folds=None):
                        'rf_hmm': 'RF + Hidden Markov Model', 
                        'rf_hmm_learn': 'RF + Unsupervised Hidden Markov Model'})
 
-    if cfg.sslnet.enabled:
+    if cfg.ssl.enabled:
         models.update({'ssl': 'Self supervised ResNet 18 (SSL)', 
                        'ssl_hmm': 'SSL + Hidden Markov Model', 
                        'ssl_hmm_learn': 'SSL + Unsupervised Hidden Markov Model'})
@@ -248,7 +248,7 @@ def evaluate_folds(cfg, scores = ['f1', 'kappa', 'accuracy'], folds=None):
             'Sample Rate': "{}Hz".format(cfg.data.sample_rate),
             'Window Size': "{}s".format(cfg.data.winsec),
             'Step Walking Threshold': "{} step(s) per window".format(cfg.data.step_threshold),
-            'SSLNet Settings': cfg.sslnet,
+            'SSLNet Settings': cfg.ssl,
             'RF Settings': cfg.rf
         }))
 

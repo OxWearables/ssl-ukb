@@ -126,7 +126,7 @@ def load_data(cfg):
 
     if cfg.data.source_path:
         source = np.load(cfg.data.source_path, allow_pickle=True)
-        pid = source + '_' + pid
+        pid = (pid.astype(object) + '_' + source.astype(object)).astype(str)
         log.info('Data source distribution:\n%s', pd.Series(source).value_counts())
 
     if cfg.data.steps_path:

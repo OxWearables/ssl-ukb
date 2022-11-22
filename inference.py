@@ -114,7 +114,7 @@ if __name__ == '__main__':
     GPU = cfg.gpu
     if GPU != -1:
         my_device = "cuda:" + str(GPU)
-    else:
+    else: 
         my_device = "cpu"
 
     # load data and construct dataloader
@@ -140,14 +140,14 @@ if __name__ == '__main__':
 
     dataloader = DataLoader(
         dataset,
-        batch_size=cfg.sslnet.batch_size,
+        batch_size=cfg.ssl.batch_size,
         shuffle=False,
         num_workers=0,
     )
 
     # load pretrained SSL model
     # Note: Inference is run only first trained model
-    sslnet = ssl.get_sslnet(my_device, cfg.ssl_repo_path, cfg.sslnet.weights.format(0))
+    sslnet = ssl.get_sslnet(my_device, cfg.ssl_repo_path, cfg.ssl.weights.format(0))
 
     # load pretrained HMM
     hmm_ssl = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
