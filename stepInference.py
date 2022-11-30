@@ -93,7 +93,7 @@ def read(filepath, resample_hz='uniform'):
             lowpass_hz=None,
             calibrate_gravity=True,
             detect_nonwear=True,
-            resample_hz='uniform',
+            resample_hz=resample_hz,
         )
 
     return data, info
@@ -311,8 +311,8 @@ if __name__ == '__main__':
 
     # Run model
     print("Running step counter...")
-    n_iter = cfg.training.num_folds if model_type == 'ssl' & cfg.training.num_folds else 1
-    y = np.mean([StepCounter(cfg.peak_counter["weights_{}".format(model_type)].format(i),
+    n_iter = cfg.training.num_folds if (model_type == 'ssl') and cfg.training.num_folds else 1
+    y = np.mean([StepCounter(cfg.peak_counter["weights_{}".format(model_type)].format(model_type, i),
                              cfg[model_type].weights.format(i),
                              model_type,
                              cfg.hmm["weights_{}".format(model_type)].format(i),
@@ -320,7 +320,8 @@ if __name__ == '__main__':
                              cfg.data.sample_rate,
                              batch_size = cfg.ssl.batch_size, 
                              num_workers = cfg.num_workers, 
-                             device = my_device).predict(X, T) for i in range(n_iter)], axis=0, dtype=np.int64)
+                             device = my_device,
+                             ssl_repo_path = cfg.ssl_repo_path).predict(X, T) for i in range(n_iter)], axis=0, dtype=np.int64)
 
     y = pd.Series(y, index=T)
 
@@ -329,6 +330,7 @@ if __name__ == '__main__':
 
     # Summary
     summary = summarize(y)
+    summary['pid'] = pid
     summary['hourly'].to_csv(f"{outdir}/{basename}_HourlySteps.csv")
     summary['daily'].to_csv(f"{outdir}/{basename}_DailySteps.csv")
     info['TotalSteps'] = summary['total']
