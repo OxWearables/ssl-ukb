@@ -23,7 +23,6 @@ import os
 import torch
 import pandas as pd
 import numpy as np
-import time
 import scipy.stats as stats
 from pandas.tseries.frequencies import to_offset
 
@@ -33,6 +32,7 @@ from datetime import datetime
 
 from models.stepcount import StepCounter
 import utils.utils as utils
+from utils.summarisation import imputeMissing
 
 DEVICE_HZ = 30  # Hz
 WINDOW_SEC = 10  # seconds
@@ -145,38 +145,20 @@ def df_to_windows(df):
     return x, t[:, 0]  # only return the first timestamp for each window
 
 
-def resolve_path(path):
-    """ Return parent folder, file name and file extension """
-    p = Path(path)
-    extension = p.suffixes[0]
-    filename = p.name.rsplit(extension)[0]
-    dirname = p.parent
-    return dirname, filename, extension
+def summarize(Y, summary, impute=False):
+    name = Y.name
 
-
-def summarize(Y, adjust_estimates=False):
-
-    if adjust_estimates:
-        Y = impute_missing(Y)
-        skipna = False
+    if impute:
+        Y = imputeMissing(Y)
+        suffix = f'{name}-imputed'
     else:
-        # crude summary ignores missing data
-        skipna = True
+        suffix = name
 
-    def _sum(x):
-        x = x.to_numpy()
-        if skipna:
-            return np.nansum(x)
-        return np.sum(x)
-
-    # there's a bug with .resample().sum(skipna)
-    # https://github.com/pandas-dev/pandas/issues/29382
-
-    total = np.round(Y.agg(_sum))  # total steps
-    hourly = Y.resample('H').agg(_sum).round()  # steps, hourly
-    daily = Y.resample('D').agg(_sum).round()  # steps, daily
+    total = np.round(Y.agg(np.nansum))  # total steps
+    hourly = Y.resample('H').agg(np.nansum).round()  # steps, hourly
+    daily = Y.resample('D').agg(np.nansum).round()  # steps, daily
     total_walk = (  # total walk (mins)
-        (pd.Timedelta(infer_freq(Y.index)) * Y.mask(~Y.isna(), Y > 0).agg(_sum))
+        (pd.Timedelta(infer_freq(Y.index)) * Y.mask(~Y.isna(), Y > 0).agg(np.nansum))
         .total_seconds() / 60
     )
 
@@ -185,54 +167,23 @@ def summarize(Y, adjust_estimates=False):
     daily = pd.to_numeric(daily, downcast='integer')
     total_walk = float(total_walk)
 
-    return {
-        'total': total,
-        'hourly': hourly,
-        'daily': daily,
-        'total_walk': total_walk,
-    }
+    summary['steps_total_{suffix}'] = int(total)
 
+    if impute and len(daily) >= 8:
+        daily_median = int(np.nanmedian(daily.iloc[0:7]))
+        daily_mean = int(np.nanmean(daily.iloc[0:7]))
+    else:
+        daily_median = int(np.nanmedian(daily))
+        daily_mean = int(np.nanmean(daily))
 
-def impute_missing(data: pd.DataFrame, extrapolate=True):
-    if extrapolate:
-        # padding at the boundaries to have full 24h
-        data = data.reindex(
-            pd.date_range(
-                data.index[0].floor('D'),
-                data.index[-1].ceil('D'),
-                freq=to_offset(infer_freq(data.index)),
-                inclusive='left',
-                name='time',
-            ),
-            method='nearest',
-            tolerance=pd.Timedelta('1m'),
-            limit=1)
+    summary[f'steps_daily_median_{suffix}'] = daily_median
+    summary[f'steps_daily_mean_{suffix}'] = daily_mean
+    summary[f'total_walk_min_{suffix}'] = int(total_walk)
 
-    def fillna(subframe):
-        if isinstance(subframe, pd.Series):
-            x = subframe.to_numpy()
-            nan = np.isnan(x)
-            nanlen = len(x[nan])
-            if 0 < nanlen < len(x):  # check x contains a NaN and is not all NaN
-                x[nan] = np.nanmean(x)
-                return x  # will be cast back to a Series automatically
-            else:
-                return subframe
+    hourly.name = suffix
+    daily.name = suffix
 
-    data = (
-        data
-        # first attempt imputation using same day of week
-        .groupby([data.index.weekday, data.index.hour, data.index.minute])
-        .transform(fillna)
-        # then try within weekday/weekend
-        .groupby([data.index.weekday >= 5, data.index.hour, data.index.minute])
-        .transform(fillna)
-        # finally, use all other days
-        .groupby([data.index.hour, data.index.minute])
-        .transform(fillna)
-    )
-
-    return data 
+    return hourly, daily
 
 
 def nanint(x):
@@ -242,7 +193,7 @@ def nanint(x):
 
 
 def infer_freq(x):
-    """ Like pd.infer_freq but more forgiving """ 
+    """ Like pd.infer_freq but more forgiving """
     freq, _ = stats.mode(np.diff(x), keepdims=False)
     freq = pd.Timedelta(freq)
     return freq
@@ -263,25 +214,31 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='Step Count', usage='Calculate the step count on a accelerometry cwa file.')
     parser.add_argument('input_file', type=str, help='input cwa file')
     parser.add_argument("--outdir", "-o", help="Enter folder location to save output files", default="outputs/")
-    parser.add_argument('--model_type', '-m', help='Enter custom model file to use', default='rf')
+    parser.add_argument('--model_type', '-m', help='Enter model type to run',
+                        choices=['rf', 'ssl', 'both'], default='both')
     args = parser.parse_args()
-
-    # Timing
-    start = time.time()
 
     input_file = args.input_file
 
     # Output paths
-    basename = resolve_path(input_file)[1]
-    outdir = os.path.join(args.outdir, basename)
-    os.makedirs(outdir, exist_ok=True)
+    basename = Path(input_file).stem
+    outdir = args.outdir
 
     model_type = args.model_type
 
+    if model_type == 'both':
+        model_type = ['ssl', 'rf']
+    else:
+        model_type = [model_type]
+
     # get pid and group from input string
     pid = basename.split('_')[0]
-    group =  Path(input_file).parent.stem if 'group' in Path(input_file).parent.stem else None
+    group = Path(input_file).parent.stem if 'group' in Path(input_file).parent.stem else None
 
+    if group:
+        outdir = os.path.join(outdir, group)
+
+    os.makedirs(outdir, exist_ok=True)
     log.info(input_file)
     log.info('%s %s', group, pid)
 
@@ -301,57 +258,87 @@ if __name__ == '__main__':
     data, info = read(input_file, cfg.data.sample_rate)
     log.info(data.head(1))
     log.info(info)
-    info = pd.DataFrame(info, index=[1])
-
+    info = pd.DataFrame(info, index=[0])
 
     # prepare dataset
     log.info('Windowing')
     X, T = df_to_windows(data)
-    del data  # free up memory
+    data_start = data.index[0]
+    data_end = data.index[-1]
+    del data
 
     # Run model
-    print("Running step counter...")
-    n_iter = cfg.training.num_folds if (model_type == 'ssl') and cfg.training.num_folds else 1
-    y = np.mean([StepCounter(cfg.peak_counter["weights_{}".format(model_type)].format(model_type, i),
-                             cfg[model_type].weights.format(i),
-                             model_type,
-                             cfg.hmm["weights_{}".format(model_type)].format(i),
-                             cfg.data.winsec,
-                             cfg.data.sample_rate,
-                             batch_size = cfg.ssl.batch_size, 
-                             num_workers = cfg.num_workers, 
-                             device = my_device,
-                             ssl_repo_path = cfg.ssl_repo_path).predict(X, T) for i in range(n_iter)], axis=0, dtype=np.int64)
+    log.info("Running step counter...")
+    # n_iter = cfg.training.num_folds if (model_type == 'ssl') and cfg.training.num_folds else 1
+    # y = np.mean([StepCounter(cfg.peak_counter["weights_{}".format(model_type)].format(model_type, i),
+    #                          cfg[model_type].weights.format(i),
+    #                          model_type,
+    #                          cfg.hmm["weights_{}".format(model_type)].format(i),
+    #                          cfg.data.winsec,
+    #                          cfg.data.sample_rate,
+    #                          batch_size=cfg.ssl.batch_size,
+    #                          num_workers=cfg.num_workers,
+    #                          device=my_device,
+    #                          ssl_repo_path=cfg.ssl_repo_path).predict(X, T) for i in range(n_iter)], axis=0, dtype=np.int64)
 
-    y = pd.Series(y, index=T)
+    i = 0  # hardcode model 0
+    y = {}
+    for mtype in model_type:
+        log.info(f'Running {mtype}')
+        y[mtype] = StepCounter(cfg.peak_counter["weights_{}".format(mtype)].format(mtype, i),
+                               cfg[mtype].weights.format(i),
+                               mtype,
+                               cfg.hmm["weights_{}".format(mtype)].format(i),
+                               cfg.data.winsec,
+                               cfg.data.sample_rate,
+                               batch_size=cfg.ssl.batch_size,
+                               num_workers=cfg.num_workers,
+                               device=my_device,
+                               ssl_repo_path=cfg.ssl_repo_path).predict(X, T)
+
+    df_y = pd.concat([pd.Series(v, index=T, dtype=int, name=k) for k, v in y.items()], axis=1)
+
+    newindex = pd.date_range(data_start, data_end, freq='{s}S'.format(s=WINDOW_SEC))
+    df_y = df_y.reindex(newindex, method='nearest', fill_value=np.nan, tolerance='20S')
 
     # Save raw output timeseries
-    y.to_parquet(f"{outdir}/{basename}_Steps.parquet", engine='pyarrow')
+    df_y.to_parquet(f"{outdir}/{pid}_steps.parquet", engine='pyarrow')
+
+    df_y['missing'] = df_y.isna().any(axis=1)
+
+    wear_time = info['WearTime(days)'].round(2)
+    good_coverage = not (df_y['missing']  # check there's at least some data for each hour pocket
+                         .groupby(df_y['missing'].index.hour)
+                         .all().any())
+    good_weartime = wear_time >= 3  # check there's at least 3 days of wear time
 
     # Summary
-    summary = summarize(y)
-    summary['pid'] = pid
-    summary['hourly'].to_csv(f"{outdir}/{basename}_HourlySteps.csv")
-    summary['daily'].to_csv(f"{outdir}/{basename}_DailySteps.csv")
-    info['TotalSteps'] = summary['total']
-    info['TotalWalking(min)'] = summary['total_walk']
+    summary = {
+        'eid': pid,
+        'StartTime': info['StartTime'],
+        'EndTime': info['EndTime'],
+        'WearTime(days)': wear_time,
+        'CalibrationOK': info['CalibOK'],
+        'quality-goodWearTime': int(good_coverage and good_weartime)
+    }
 
-    # Impute missing periods & recalculate summary
-    summary_adj = summarize(y, adjust_estimates=True)
-    summary_adj['hourly'].to_csv(f"{outdir}/{basename}_HourlyStepsAdjusted.csv")
-    summary_adj['daily'].to_csv(f"{outdir}/{basename}_DailyStepsAdjusted.csv")
-    info['TotalStepsAdjusted'] = summary_adj['total']
-    info['TotalWalkingAdjusted(min)'] = summary_adj['total_walk']
-    
-    # Print
-    print("\nSummary\n-------")
-    print(json.dumps(info, indent=4, cls=NpEncoder))
-    print("\nEstimated Daily Steps\n---------------------")
-    print(pd.concat([
-        summary['daily'].rename('Crude'), 
-        summary_adj['daily'].rename('Adjusted')
-    ], axis=1))
+    hourly, daily = [], []  # contains lists of pd.Series
+    for mtype in model_type:
+        h, d = summarize(df_y[mtype], summary)
+        h_imp, d_imp = summarize(df_y[mtype], summary, impute=True)
+        hourly.extend([h, h_imp])
+        daily.extend([d, d_imp])
+
+    summary = pd.DataFrame(summary, index=[0])
+    summary.to_csv(f"{outdir}/{pid}_summary.csv", index=False)
+
+    # convert individual Series to DataFrame
+    df_hourly = pd.concat(hourly, axis=1)
+    df_daily = pd.concat(daily, axis=1)
+
+    df_hourly.to_csv(f"{outdir}/{pid}_steps_hourly.csv", index_label='timestamp')
+    df_daily.to_csv(f"{outdir}/{pid}_steps_daily.csv", index_label='timestamp')
 
     # Timing
-    end = time.time()
-    print(f"Done! ({round(end - start,2)}s)")
+    end_time = datetime.now()
+    log.info(f'Duration: {end_time - start_time}')

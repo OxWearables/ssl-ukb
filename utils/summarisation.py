@@ -283,7 +283,7 @@ def imputeMissing(data: pd.DataFrame, extrapolate=True):
                 data.index[0].floor('D'),
                 data.index[-1].ceil('D'),
                 freq=to_offset(pd.infer_freq(data.index)),
-                closed='left',
+                inclusive='left',
                 name='time',
             ),
             method='nearest',
