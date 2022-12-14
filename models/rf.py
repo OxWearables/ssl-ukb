@@ -44,9 +44,9 @@ def extract_features(data, sample_rate, num_workers=1):
     """
 
     x_feats = Parallel(n_jobs=num_workers)(
-        delayed(_handcraft_features)(x, sample_rate=sample_rate) for x in tqdm(data)
+        delayed(_handcraft_features)(x, sample_rate=sample_rate) for x in tqdm(data, mininterval=60)
     )
-    x_feats = pd.DataFrame(x_feats).to_numpy()
+    x_feats = pd.DataFrame(x_feats).fillna(0).to_numpy()
 
     return x_feats
 
