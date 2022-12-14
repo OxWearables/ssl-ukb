@@ -136,7 +136,7 @@ def predict(model, data_loader, my_device, output_logits=False):
     model.eval()
     if my_device == 'cpu':
         torch.set_flush_denormal(True)
-    for i, (x, y, pid) in enumerate(tqdm(data_loader)):
+    for i, (x, y, pid) in enumerate(tqdm(data_loader, mininterval=60)):
         with torch.inference_mode():
             x = x.to(my_device, dtype=torch.float)
             logits = model(x)

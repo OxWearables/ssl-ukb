@@ -28,7 +28,7 @@ class WalkingDetector():
     ):
         self.model_type = model_type
         self.device = device
-        self.load_walking_model(walking_model, model_type, ssl_repo_path) 
+        self.load_walking_model(walking_model, ssl_repo_path)
         self.load_hmm(hmm)
         self.winsec = winsec
         self.sample_rate = sample_rate
@@ -74,7 +74,7 @@ class WalkingDetector():
                 NormalDataset(X),
                 batch_size=self.batch_size,
                 shuffle=False,
-                num_workers=self.num_workers,
+                num_workers=0,
             )
 
             _, y, _ = ssl.predict(
