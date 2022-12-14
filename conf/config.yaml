@@ -16,7 +16,7 @@ training:
   val_split: 0.2
   external_val:
 
-sslnet:
+ssl:
   enabled: true
   overwrite: false
   weights: weights/ssl/state_dict_{}.pt
