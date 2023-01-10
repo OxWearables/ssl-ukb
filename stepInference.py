@@ -167,7 +167,7 @@ def summarize(Y, summary, impute=False):
     daily = pd.to_numeric(daily, downcast='integer')
     total_walk = float(total_walk)
 
-    summary['steps_total_{suffix}'] = int(total)
+    summary[f'steps_total_{suffix}'] = int(total)
 
     if impute and len(daily) >= 8:
         daily_median = int(np.nanmedian(daily.iloc[0:7]))
