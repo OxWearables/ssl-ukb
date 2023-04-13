@@ -6,14 +6,16 @@ This repository deploys the [Yuan et al. (2022)](https://arxiv.org/abs/2206.0290
 The scripts in this repo perform an end-to-end activity prediction and summary statistics calculation on the UKB accelerometer data. 
 The following steps are performed:
 
-1) Model training (fine-tuning) and evaluation: The pretrained deep-learning SSL model is fine-tuned on a labelled dataset. The pretrained model is downloaded at runtime from [ssl-wearables](https://github.com/OxWearables/ssl-wearables). Performance is compared to a benchmark Random Forest (RF) model.
+1) Model training (fine-tuning) and evaluation: The pretrained deep-learning SSL model is fine-tuned on a labelled dataset (Capture-24). The pretrained model is downloaded at runtime from [ssl-wearables](https://github.com/OxWearables/ssl-wearables). Performance is compared to a benchmark Random Forest (RF) model.
 2) Prediction smoothing: The predicted time-series are smoothed with a Hidden Markov Model (HMM). For the SSL model, the HMM emission matrix is derived from the predicted probabilities of a held-out validation set. For the RF, the out-of-bag training probabilities are used.
-3) UKB deployment: Activity inference is done on the UKB accelerometer time-series with the fine-tuned SSL model. Summary statistics are calculated from the inferred activity time-series. 
+3) UKB deployment: Activity inference is done on the UKB accelerometer time-series with the fine-tuned SSL model and smoothed with the HMM. Summary statistics are calculated from the predicted activity time-series. 
 
 Model training and evaluation (steps 1 and 2) can be performed on a local machine (ideally with a CUDA-enabled GPU for the SSL model fine-tuning). 
 The scripts for step 3 are set up for deployment on an HPC cluster in an array job.
 
 [Capture-24](https://ora.ox.ac.uk/objects/uuid:99d7c092-d865-4a19-b096-cc16440cd001) is used as the labelled dataset for model training and evaluation.
+
+Processed outputs from this deployment are available on BMRC, see [Authorship and usage](#authorship-and-usage).
 
 ## Installation
 ### Prepare virtual environment
@@ -91,7 +93,57 @@ This will evaluate the trained RF and SSLNet on their original and HMM-smoothed 
 
 
 ### Step 2: HPC cluster deployment
-WIP
+The `inference.py` file is intended for cluster deployment in an array job. It takes the trained SSL (using the weights obtained in Step 1) and applies it to an accelerometer file to get the predicted time series. 
+
+After training the model and obtaining the weights in Step 1, use it as follows:
+
+```bash
+python inference.py /data/ukb-accelerometer/group1/4027057_90001_0_0.cwa.gz
+```
+
+See the top of the script for further comments. Note: to read the parquet data format used for the output file you can use `pandas.read_parquet`
+
+The script also loads its config from `conf/config.yaml` (e.g.: the SSL and HMM weight paths), so when deploying on BMRC make sure this is set the same as in your development environment.
+
+The typical workflow for BMRC deployment is as follows:
+
+1) Do the installation and run Step 1 on your local machine or development system (only running`train.py` is strictly required to get the trained model)
+2) After training, copy the whole `ssl-ukb` folder from your local machine to your work folder on BMRC (it should contain the trained weights in the `weights` folder)
+
+The following steps will take place entirely on BMRC:
+
+3) Install the virtual environment (or conda environment)
+4) Clone the [ssl-wearables](https://github.com/OxWearables/ssl-wearables) repo to your work folder on BMRC, and set the config entry `ssl_repo_path` to this location
+5) Make sure the config entry `gpu` is set to `-1` for CPU processing
+6) Manually test `inference.py` on a single accelerometer file to see if it works and produces the expected output in the `outputs` folder. Do this in an interactive session, NOT on the login node, to check that the ssl-wearables repo is correctly loaded from disk without internet access.
+7) Prepare an array job as usual, using a text file that contains line by line calls to `inference.py` for all accelerometer files you want to process. Number of cores and memory can be left as default (1 core, 15GB RAM). Using more than 1 core is not beneficial. Make sure the virtual environment (or conda) is activated at the start of the job.
+8) Submit the array job. Note: if you're using conda, make sure no environment is active when you submit the job (not even the base env!). It will break things.
+
+When the job is done, the output will be in the `outputs` folder (set by the config entry `ukb_output_path`). The output will be a Pandas dataframe in `{eid}.parquet` format with the predicted time series. 
+
+### Post-processing
+
+After obtaining the predicted time series, `summary.py` can be used to calculate summary statistics (same format as output by BBAA). It works on the `.parquet` file output by `inference.py`. Use it in the same way as `inference.py` on a single output file:
+
+```bash
+python summary.py /home/ssl-ukb/outputs/group1/4027057.parquet
+```
+
+You can do a second array job to run this on all your output files, or you can add it to the first array job so that it performs both `inference.py` and `summary.py` in sequence.
+
+The output will be a `{eid}_summary.csv` file with the summary statistics.
+
+Once you have obtained all the summary files,  `utils/merge_summary.py` can be used to collate the individual summary files into 1 large `summary.csv` file. Best to also run this on BMRC in an interactive session with 4-8 cores (set `num_workers` at the bottom of the script accordingly).
+
+## Authorship and usage
+
+This repo was authored by Gert Mertes `gertmertes [at] gmail {dot} com`
+
+Processed outputs from the SSL+HMM trained on Capture-24, deployed on the UKB accelerometer dataset, are available in the BMRC group folder at `/well/doherty/projects/ukb/ssl-ukb/run2-enmofix` (predictions and summary stats). See the readme file in the parent directory for more info. 
+
+**If you use these outputs, this repo, or parts of it, in your research, please include Gert Mertes as a co-author on papers that result from it.**
+
+This repo also contains code snippets authored by other researchers of the OxWearables group, including Shing Chan, Hang Yuan and Aidan Acquah.
 
 ## License
 This software is intended for use by academics carrying out research and not for commercial business use, see [LICENSE](LICENSE.md). If you are interested in using this software commercially,
