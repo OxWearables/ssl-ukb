@@ -24,24 +24,24 @@ class WalkingDetector():
         num_workers = None, 
         batch_size = None,
         device = None,
-        ssl_repo_path = None
+        cfg = None
     ):
         self.model_type = model_type
         self.device = device
-        self.load_walking_model(walking_model, ssl_repo_path)
+        self.load_walking_model(walking_model, cfg)
         self.load_hmm(hmm)
         self.winsec = winsec
         self.sample_rate = sample_rate
         self.num_workers = num_workers
         self.batch_size = batch_size
 
-    def load_walking_model(self, model, ssl_repo_path):
+    def load_walking_model(self, model, cfg):
         if isinstance(model, str):
             if self.model_type == 'rf':
                 self.walking_model: BalancedRandomForestClassifier = joblib.load(model)
 
             elif self.model_type == 'ssl':
-                self.walking_model: nn.Module = ssl.get_sslnet(self.device, ssl_repo_path, model)
+                self.walking_model: nn.Module = ssl.get_sslnet(self.device, cfg, model)
             
             else:
                 raise Exception("Invalid walking model type")

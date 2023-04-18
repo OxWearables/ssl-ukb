@@ -279,7 +279,7 @@ if __name__ == '__main__':
     #                          batch_size=cfg.ssl.batch_size,
     #                          num_workers=cfg.num_workers,
     #                          device=my_device,
-    #                          ssl_repo_path=cfg.ssl_repo_path).predict(X, T) for i in range(n_iter)], axis=0, dtype=np.int64)
+    #                          cfg=cfg).predict(X, T) for i in range(n_iter)], axis=0, dtype=np.int64)
 
     i = 0  # hardcode model 0
     y = {}
@@ -294,7 +294,7 @@ if __name__ == '__main__':
                                batch_size=cfg.ssl.batch_size,
                                num_workers=cfg.num_workers,
                                device=my_device,
-                               ssl_repo_path=cfg.ssl_repo_path).predict(X, T)
+                               cfg=cfg).predict(X, T)
 
     df_y = pd.concat([pd.Series(v, index=T, dtype=int, name=k) for k, v in y.items()], axis=1)
 

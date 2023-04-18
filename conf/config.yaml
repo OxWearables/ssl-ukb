@@ -70,3 +70,4 @@ data:
   sample_rate: 30
   winsec: 10
   step_threshold: 4
+  output_size: 4

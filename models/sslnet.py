@@ -82,28 +82,28 @@ class EarlyStopping:
         self.val_loss_min = val_loss
 
 
-def get_sslnet(device, ssl_repo_path=None, ssl_weights_path=None, pretrained=False):
+def get_sslnet(device, cfg, ssl_weights_path=None, pretrained=False):
     """
     Load and return the SSLNet.
 
     :param str device: pytorch map location
-    :param ssl_repo_path: the path of downloaded resnet model
+    :param cfg: config object
     :param ssl_weights_path: the path of the pretrained (fine-tuned) weights.
     :param bool pretrained: Initialise the model with self-supervised pretrained weights.
     :return: pytorch SSLNet model
     :rtype: nn.Module
     """
 
-    if ssl_repo_path:
+    if cfg.ssl_repo_path:
         # use repo from disk (for offline use)
-        log.info('Using local %s', ssl_repo_path)
-        sslnet: nn.Module = torch.hub.load(ssl_repo_path, 'harnet10', source='local', class_num=2,
-                                           pretrained=pretrained)
+        log.info('Using local %s', cfg.ssl_repo_path)
+        sslnet: nn.Module = torch.hub.load(cfg.ssl_repo_path, f"harnet{cfg.data.winsec}", source='local', 
+                                           class_num=cfg.data.output_size, pretrained=pretrained)
     else:
         # download repo from github
         repo = 'OxWearables/ssl-wearables'
-        sslnet: nn.Module = torch.hub.load(repo, 'harnet10', trust_repo=True, 
-                                           class_num=2, pretrained=pretrained)
+        sslnet: nn.Module = torch.hub.load(repo,  f"harnet{cfg.data.winsec}", trust_repo=True, 
+                                           class_num=cfg.data.output_size, pretrained=pretrained)
 
     if ssl_weights_path:
         # load pretrained weights

@@ -98,7 +98,7 @@ def evaluate_model(training_data, cfg, fold="0"):
 
     if cfg.ssl.enabled:
         # load pretrained SSL model
-        sslnet = ssl.get_sslnet(my_device, cfg.ssl_repo_path, cfg.ssl.weights.format(fold))
+        sslnet = ssl.get_sslnet(my_device, cfg, cfg.ssl.weights.format(fold))
 
         hmm_ssl = HMM(utils.classes, uniform_prior=cfg.hmm.uniform_prior)
         hmm_ssl.load(cfg.hmm.weights_ssl.format(fold))
